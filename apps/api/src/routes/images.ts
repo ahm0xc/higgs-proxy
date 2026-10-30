@@ -63,6 +63,7 @@ export async function listImagesHandler(c: Context<AuthEnv>) {
   const rows = await db
     .select({
       id: imageGeneration.id,
+      userId: imageGeneration.userId,
       model: imageGeneration.model,
       modelName: imageGeneration.modelName,
       prompt: imageGeneration.prompt,
@@ -127,6 +128,99 @@ export async function getImageHandler(c: Context<AuthEnv>) {
     .orderBy(imageGenerationInput.position);
 
   return c.json({ image: synced, inputs });
+}
+
+const DOWNLOAD_EXTENSIONS: Record<string, string> = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+  "image/avif": "avif",
+};
+
+/**
+ * Streams the finished image back through our origin so the browser saves it
+ * instead of opening the provider URL in a tab. The provider CDN usually does
+ * not send CORS headers, so a client-side fetch of `resultUrl` cannot work.
+ */
+export async function downloadImageHandler(c: Context<AuthEnv>) {
+  const userId = c.get("user").id;
+  const id = c.req.param("id");
+
+  const [image] = await db
+    .select({
+      id: imageGeneration.id,
+      resultUrl: imageGeneration.resultUrl,
+      thumbnailUrl: imageGeneration.thumbnailUrl,
+    })
+    .from(imageGeneration)
+    .where(
+      and(
+        eq(imageGeneration.id, id ?? ""),
+        eq(imageGeneration.userId, userId),
+        isNull(imageGeneration.deletedAt),
+      ),
+    )
+    .limit(1);
+
+  const source = image?.resultUrl ?? image?.thumbnailUrl;
+
+  if (!image || !source) {
+    throw new HTTPException(404, { message: "Image is not ready to download" });
+  }
+
+  const upstream = await fetch(source);
+
+  if (!upstream.ok || !upstream.body) {
+    throw new HTTPException(502, { message: "Could not fetch the image file" });
+  }
+
+  const contentType = upstream.headers.get("content-type") ?? "image/png";
+  const extension = DOWNLOAD_EXTENSIONS[contentType.split(";")[0]] ?? "png";
+  const filename = `higgs-${image.id.slice(0, 8)}.${extension}`;
+
+  return new Response(upstream.body, {
+    headers: {
+      "content-type": contentType,
+      "content-disposition": `attachment; filename="${filename}"`,
+    },
+  });
+}
+
+/**
+ * Toggles the star on one of the caller's images. The gallery updates
+ * optimistically and rolls back if this call fails.
+ */
+export async function setImageFavoriteHandler(c: Context<AuthEnv>) {
+  const userId = c.get("user").id;
+  const id = c.req.param("id");
+
+  const body = await c.req.json().catch(() => null);
+  const favorite = (body as { favorite?: unknown } | null)?.favorite;
+
+  if (typeof favorite !== "boolean") {
+    throw new HTTPException(400, { message: "favorite must be a boolean." });
+  }
+
+  const [updated] = await db
+    .update(imageGeneration)
+    .set({ isFavorite: favorite, updatedAt: new Date() })
+    .where(
+      and(
+        eq(imageGeneration.id, id ?? ""),
+        eq(imageGeneration.userId, userId),
+        isNull(imageGeneration.deletedAt),
+      ),
+    )
+    .returning({
+      id: imageGeneration.id,
+      isFavorite: imageGeneration.isFavorite,
+    });
+
+  if (!updated) {
+    throw new HTTPException(404, { message: "Image not found" });
+  }
+
+  return c.json(updated);
 }
 
 /**

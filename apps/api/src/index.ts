@@ -22,9 +22,11 @@ import {
 import { meHandler } from "./routes/me";
 import {
   createImageHandler,
+  downloadImageHandler,
   estimateImageCostHandler,
   getImageHandler,
   listImagesHandler,
+  setImageFavoriteHandler,
 } from "./routes/images";
 import { startImageJobWatcher } from "./lib/image-jobs";
 import { setupHandler, setupStatusHandler } from "./routes/setup";
@@ -39,6 +41,7 @@ app.use(
     credentials: true,
     allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowHeaders: ["Content-Type", "Authorization"],
+    exposeHeaders: ["Content-Disposition"],
   }),
 );
 
@@ -63,6 +66,18 @@ const routes = app
   .get("/status", requireAuth, statusHandler)
   .get("/images", requireAuth, requireCapability("image"), listImagesHandler)
   .get("/images/:id", requireAuth, requireCapability("image"), getImageHandler)
+  .get(
+    "/images/:id/download",
+    requireAuth,
+    requireCapability("image"),
+    downloadImageHandler,
+  )
+  .patch(
+    "/images/:id/favorite",
+    requireAuth,
+    requireCapability("image"),
+    setImageFavoriteHandler,
+  )
   .post("/images", requireAuth, requireCapability("image"), createImageHandler)
   .post(
     "/images/cost",

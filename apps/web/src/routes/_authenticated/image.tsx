@@ -1,11 +1,18 @@
+import { Avatar } from "@heroui/react/avatar";
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
 
 import type { ImagePrompt } from "~/components/image-prompt-bar";
 import { ImagePromptBar } from "~/components/image-prompt-bar";
 import { LockedFeature } from "~/components/locked-feature";
+import { avatarUrlFor } from "~/components/user-menu";
 import type { GeneratedImage, ImageStatus } from "~/lib/images-api";
-import { createImage, listImages } from "~/lib/images-api";
+import {
+  createImage,
+  imageDownloadUrl,
+  listImages,
+  setImageFavorite,
+} from "~/lib/images-api";
 
 export const Route = createFileRoute("/_authenticated/image")({
   component: ImagePage,
@@ -103,6 +110,27 @@ function Gallery() {
     [filter],
   );
 
+  const toggleFavorite = useCallback(async (image: GeneratedImage) => {
+    const favorite = !image.isFavorite;
+
+    // Optimistic: the star flips immediately, and rolls back if the API rejects.
+    setImages((current) =>
+      current.map((item) =>
+        item.id === image.id ? { ...item, isFavorite: favorite } : item,
+      ),
+    );
+
+    try {
+      await setImageFavorite(image.id, favorite);
+    } catch {
+      setImages((current) =>
+        current.map((item) =>
+          item.id === image.id ? { ...item, isFavorite: !favorite } : item,
+        ),
+      );
+    }
+  }, []);
+
   return (
     <main className="w-full pt-4 pb-56">
       <div className="mb-3 flex justify-end px-4 sm:px-6">
@@ -153,7 +181,11 @@ function Gallery() {
         <EmptyState favorite={filter === "favorites"} />
       ) : (
         <div className="mt-4 px-0.5">
-          <ImageGrid images={images} onOpen={setSelected} />
+          <ImageGrid
+            images={images}
+            onOpen={setSelected}
+            onToggleFavorite={(image) => void toggleFavorite(image)}
+          />
         </div>
       )}
 
@@ -232,7 +264,7 @@ function StatusBadge({ status }: { status: ImageStatus }) {
   );
 }
 
-function StarIcon({ filled }: { filled: boolean }) {
+function HeartIcon({ filled }: { filled: boolean }) {
   return (
     <svg
       aria-hidden="true"
@@ -244,35 +276,90 @@ function StarIcon({ filled }: { filled: boolean }) {
       strokeLinejoin="round"
       className="size-4"
     >
-      <path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8L3.5 9.7l5.9-.9L12 3.5z" />
+      <path d="M12 20.25l-1.1-1c-3.9-3.5-5.9-5.4-5.9-8.3A4.1 4.1 0 0 1 12 8.1a4.1 4.1 0 0 1 6.9 2.85c0 2.9-2 4.8-5.9 8.3l-1 1z" />
     </svg>
   );
+}
+
+function DownloadIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-4"
+    >
+      <path d="M12 4v10m0 0l-3.5-3.5M12 14l3.5-3.5M5 16.5v1.5a2 2 0 002 2h10a2 2 0 002-2v-1.5" />
+    </svg>
+  );
+}
+
+/**
+ * Saves the image through the API's download endpoint. Fetching the file as a
+ * blob (rather than pointing an <a download> at it) is what makes the browser
+ * save it instead of opening it, and the proxy is what makes it work at all —
+ * the provider URL is cross-origin and CORS-blocked.
+ */
+async function saveImage(id: string) {
+  const response = await fetch(imageDownloadUrl(id), {
+    credentials: "include",
+  });
+
+  if (!response.ok) throw new Error("Could not download the image");
+
+  const disposition = response.headers.get("content-disposition") ?? "";
+  const filename =
+    /filename="?([^";]+)"?/.exec(disposition)?.[1] ??
+    `higgs-${id.slice(0, 8)}.png`;
+
+  const objectUrl = URL.createObjectURL(await response.blob());
+  const anchor = document.createElement("a");
+
+  anchor.href = objectUrl;
+  anchor.download = filename;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+
+  // Give the browser a beat to start writing before dropping the blob.
+  setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
 }
 
 function ImageCard({
   image,
   onOpen,
+  onToggleFavorite,
 }: {
   image: GeneratedImage;
   onOpen: () => void;
+  onToggleFavorite: () => void;
 }) {
   const src = image.thumbnailUrl ?? image.resultUrl;
+  const isReady = image.status === "completed" && Boolean(src);
 
   return (
-    <button
-      type="button"
-      onClick={onOpen}
-      className="group relative block h-full min-h-0 w-full overflow-hidden bg-zinc-100 text-left dark:bg-zinc-900"
-    >
-      <div className="relative h-full w-full overflow-hidden">
-        {image.status === "completed" && src ? (
+    <div className="group relative block h-full min-h-0 w-full overflow-hidden bg-zinc-100 dark:bg-zinc-900">
+      {/* The whole card opens the lightbox; actions layer above it. */}
+      <button
+        type="button"
+        onClick={onOpen}
+        aria-label={`Open image: ${image.prompt}`}
+        className="absolute inset-0 z-0 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-inset dark:focus-visible:ring-zinc-100"
+      />
+
+      <div className="pointer-events-none relative h-full w-full overflow-hidden">
+        {isReady ? (
           <img
-            src={src}
+            src={src ?? undefined}
             alt={image.prompt}
             width={image.width}
             height={image.height}
             loading="lazy"
-            className="absolute inset-0 size-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
+            className="absolute inset-0 size-full object-cover"
           />
         ) : image.status === "failed" ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-red-50 px-6 text-center dark:bg-red-950/30">
@@ -295,31 +382,52 @@ function ImageCard({
           </div>
         ) : null}
 
-        {image.isFavorite ? (
-          <span
-            aria-label="Favorite"
-            className="absolute top-2 right-2 rounded-full bg-black/50 p-1.5 text-amber-300 backdrop-blur-sm"
-          >
-            <StarIcon filled />
-          </span>
-        ) : null}
+        {/* Right rail: who made it, then the actions stacked below. */}
+        <div className="absolute inset-y-0 right-0 flex w-24 flex-col items-end gap-2 bg-linear-to-l from-black/80 via-black/25 to-transparent p-2 opacity-0 transition-opacity duration-300 group-hover:opacity-100 has-[:focus-visible]:opacity-100">
+          <Avatar size="sm" className="size-7 shrink-0 ring-1 ring-white/20">
+            <Avatar.Image src={avatarUrlFor(image.userId)} alt="" />
+          </Avatar>
 
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 translate-y-2 bg-linear-to-t from-black/80 via-black/35 to-transparent px-3 pt-10 pb-3 opacity-0 transition-all duration-300 group-hover:translate-y-0 group-hover:opacity-100">
-          <p className="line-clamp-2 text-xs leading-snug text-white/90">
-            {image.prompt}
-          </p>
-          <p className="mt-1.5 flex flex-wrap items-center gap-x-2 text-[11px] text-white/60">
-            <span className="font-medium text-white/80">{image.modelName}</span>
-            <span aria-hidden="true">·</span>
-            <span>{image.aspectRatio}</span>
-            <span aria-hidden="true">·</span>
-            <span>
-              {image.width}×{image.height}
-            </span>
-          </p>
+          <div className="pointer-events-auto flex flex-col items-end gap-1.5">
+            <button
+              type="button"
+              onClick={onToggleFavorite}
+              aria-label={
+                image.isFavorite ? "Remove from favorites" : "Add to favorites"
+              }
+              aria-pressed={image.isFavorite}
+              className={`flex size-7 cursor-pointer items-center justify-center rounded-full bg-black/45 ring-1 ring-white/15 backdrop-blur-md transition-colors hover:bg-black/70 ${
+                image.isFavorite
+                  ? "text-rose-400"
+                  : "text-white/90 hover:text-white"
+              }`}
+            >
+              <HeartIcon filled={image.isFavorite} />
+            </button>
+
+            {isReady ? (
+              <button
+                type="button"
+                onClick={() => {
+                  void saveImage(image.id).catch(() => {
+                    // Last resort: hand the file to the browser directly.
+                    window.open(
+                      image.resultUrl ?? src ?? "",
+                      "_blank",
+                      "noreferrer",
+                    );
+                  });
+                }}
+                aria-label="Download image"
+                className="flex size-7 cursor-pointer items-center justify-center rounded-full bg-black/45 text-white ring-1 ring-white/15 backdrop-blur-md transition-colors hover:bg-black/70 hover:text-white"
+              >
+                <DownloadIcon />
+              </button>
+            ) : null}
+          </div>
         </div>
       </div>
-    </button>
+    </div>
   );
 }
 
@@ -334,9 +442,11 @@ const GRID_TARGET_HEIGHT_PX = 280;
 function ImageGrid({
   images,
   onOpen,
+  onToggleFavorite,
 }: {
   images: GeneratedImage[];
   onOpen: (image: GeneratedImage) => void;
+  onToggleFavorite: (image: GeneratedImage) => void;
 }) {
   return (
     <div className="flex flex-wrap gap-0.5">
@@ -353,7 +463,11 @@ function ImageGrid({
               aspectRatio: `${image.width} / ${image.height}`,
             }}
           >
-            <ImageCard image={image} onOpen={() => onOpen(image)} />
+            <ImageCard
+              image={image}
+              onOpen={() => onOpen(image)}
+              onToggleFavorite={() => onToggleFavorite(image)}
+            />
           </div>
         );
       })}

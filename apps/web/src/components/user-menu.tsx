@@ -19,7 +19,7 @@ function initialsOf(name: string) {
   return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
 }
 
-function avatarUrlFor(userId: string) {
+export function avatarUrlFor(userId: string) {
   return `https://api.dicebear.com/10.x/glass/svg?seed=${encodeURIComponent(userId)}`;
 }
 

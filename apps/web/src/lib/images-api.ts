@@ -1,3 +1,4 @@
+import { apiBaseUrl } from "./api";
 import { requestJson } from "./request";
 
 export type ImageStatus =
@@ -5,6 +6,7 @@ export type ImageStatus =
 
 export interface GeneratedImage {
   id: string;
+  userId: string;
   model: string;
   modelName: string;
   prompt: string;
@@ -85,6 +87,22 @@ export function createImage(input: CreateImageInput) {
     method: "POST",
     body,
   });
+}
+
+/** Same-origin download endpoint; the API streams the file as an attachment. */
+export function imageDownloadUrl(id: string) {
+  return `${apiBaseUrl}/images/${id}/download`;
+}
+
+/** Sets the star on one image; the gallery updates optimistically. */
+export function setImageFavorite(id: string, favorite: boolean) {
+  return requestJson<{ id: string; isFavorite: boolean }>(
+    `/images/${id}/favorite`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ favorite }),
+    },
+  );
 }
 
 export function getImage(id: string) {
