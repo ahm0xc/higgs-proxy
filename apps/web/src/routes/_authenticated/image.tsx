@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
 
+import { ImagePromptBar } from "~/components/image-prompt-bar";
 import { LockedFeature } from "~/components/locked-feature";
 import type { GeneratedImage, ImageStatus } from "~/lib/images-api";
 import { listImages } from "~/lib/images-api";
@@ -63,8 +64,16 @@ function Gallery() {
     void load(filter);
   }, [filter, load]);
 
+  // TODO: POST to the API once `generate create` is wired up; until then the
+  // bar surfaces the error under the prompt instead of silently doing nothing.
+  const generate = useCallback(async () => {
+    throw new Error(
+      "Image generation isn't connected yet — the prompt bar is ready for the CLI create endpoint.",
+    );
+  }, []);
+
   return (
-    <main className="w-full py-4">
+    <main className="w-full pt-4 pb-56">
       <div className="mb-3 flex justify-end px-4 sm:px-6">
         <div
           role="group"
@@ -125,7 +134,9 @@ function Gallery() {
 
       {selected ? (
         <Lightbox image={selected} onClose={() => setSelected(null)} />
-      ) : null}
+      ) : (
+        <ImagePromptBar onSubmit={generate} />
+      )}
     </main>
   );
 }
@@ -175,7 +186,7 @@ function EmptyState({ favorite }: { favorite: boolean }) {
       <p className="mx-auto mt-1 max-w-sm text-sm text-zinc-500 dark:text-zinc-400">
         {favorite
           ? "Star a generation and it will show up here."
-          : "Generated images will appear here as soon as you create the first one."}
+          : "Describe an image in the prompt bar below and it will appear here."}
       </p>
     </div>
   );
@@ -228,9 +239,7 @@ function ImageCard({
       onClick={onOpen}
       className="group relative block h-full min-h-0 w-full overflow-hidden bg-zinc-100 text-left dark:bg-zinc-900"
     >
-      <div
-        className="relative h-full w-full overflow-hidden"
-      >
+      <div className="relative h-full w-full overflow-hidden">
         {image.status === "completed" && src ? (
           <img
             src={src}

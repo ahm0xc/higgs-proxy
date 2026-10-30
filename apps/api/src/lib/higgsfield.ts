@@ -111,6 +111,68 @@ function parseVersion(stdout: string): string | undefined {
   return match?.[1];
 }
 
+export interface ImageCostParams {
+  model: string;
+  aspectRatio?: string;
+  resolution?: string;
+  quality?: string;
+  extras?: Record<string, string>;
+}
+
+export class CostEstimateError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CostEstimateError";
+  }
+}
+
+/**
+ * Estimated credits for one generation, via `higgsfield generate cost` — the
+ * CLI prices the request without creating a job. Costs only depend on the
+ * model and its params, so a placeholder prompt satisfies models that require
+ * one; prompt text is intentionally not part of the request.
+ */
+export async function estimateImageCost({
+  model,
+  aspectRatio,
+  resolution,
+  quality,
+  extras,
+}: ImageCostParams): Promise<number> {
+  const args = ["generate", "cost", model, "--json", "--prompt", " "];
+
+  if (aspectRatio) args.push("--aspect_ratio", aspectRatio);
+  if (resolution) args.push("--resolution", resolution);
+  if (quality) args.push("--quality", quality);
+
+  for (const [key, value] of Object.entries(extras ?? {})) {
+    args.push(`--${key}`, value);
+  }
+
+  const result = await runCli(args);
+
+  if (result.exitCode !== 0) {
+    const message = (result.stderr || result.stdout).trim();
+    throw new CostEstimateError(message || "Could not estimate the cost.");
+  }
+
+  let parsed: unknown;
+
+  try {
+    parsed = JSON.parse(result.stdout);
+  } catch {
+    throw new CostEstimateError("Unexpected `generate cost` output.");
+  }
+
+  const credits = (parsed as { credits?: unknown } | null)?.credits;
+
+  if (typeof credits !== "number" || !Number.isFinite(credits) || credits < 0) {
+    throw new CostEstimateError("Unexpected `generate cost` output.");
+  }
+
+  return credits;
+}
+
 function parseWorkspaces(stdout: string): HiggsfieldWorkspace[] {
   const parsed: unknown = JSON.parse(stdout);
 

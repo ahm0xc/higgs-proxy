@@ -35,3 +35,23 @@ export function listImages(options: { favorite?: boolean } = {}) {
 
   return requestJson<ImageListResponse>(`/images?${params.toString()}`);
 }
+
+export interface ImageCostInput {
+  model: string;
+  aspectRatio?: string;
+  resolution?: string;
+  quality?: string;
+  extras?: Record<string, string>;
+}
+
+/** Estimated credits for one generation, priced by the CLI without a job. */
+export function estimateImageCost(
+  input: ImageCostInput,
+  init: RequestInit = {},
+) {
+  return requestJson<{ credits: number }>("/images/cost", {
+    method: "POST",
+    body: JSON.stringify(input),
+    ...init,
+  });
+}

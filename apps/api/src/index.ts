@@ -20,7 +20,11 @@ import {
   updateCapabilitiesHandler,
 } from "./routes/admin-users";
 import { meHandler } from "./routes/me";
-import { getImageHandler, listImagesHandler } from "./routes/images";
+import {
+  estimateImageCostHandler,
+  getImageHandler,
+  listImagesHandler,
+} from "./routes/images";
 import { setupHandler, setupStatusHandler } from "./routes/setup";
 import { statusHandler } from "./routes/status";
 
@@ -57,6 +61,12 @@ const routes = app
   .get("/status", requireAuth, statusHandler)
   .get("/images", requireAuth, requireCapability("image"), listImagesHandler)
   .get("/images/:id", requireAuth, requireCapability("image"), getImageHandler)
+  .post(
+    "/images/cost",
+    requireAuth,
+    requireCapability("image"),
+    estimateImageCostHandler,
+  )
   .get("/admin/users", requireAuth, requireAdmin, listUsersHandler)
   .post("/admin/users", requireAuth, requireAdmin, createUserHandler)
   .post(
