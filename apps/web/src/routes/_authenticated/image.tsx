@@ -1,10 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
 
+import type { ImagePrompt } from "~/components/image-prompt-bar";
 import { ImagePromptBar } from "~/components/image-prompt-bar";
 import { LockedFeature } from "~/components/locked-feature";
 import type { GeneratedImage, ImageStatus } from "~/lib/images-api";
-import { listImages } from "~/lib/images-api";
+import { createImage, listImages } from "~/lib/images-api";
 
 export const Route = createFileRoute("/_authenticated/image")({
   component: ImagePage,
@@ -64,13 +65,43 @@ function Gallery() {
     void load(filter);
   }, [filter, load]);
 
-  // TODO: POST to the API once `generate create` is wired up; until then the
-  // bar surfaces the error under the prompt instead of silently doing nothing.
-  const generate = useCallback(async () => {
-    throw new Error(
-      "Image generation isn't connected yet — the prompt bar is ready for the CLI create endpoint.",
-    );
-  }, []);
+  // Poll while anything is still rendering. The API refreshes each pending job
+  // from the CLI before answering, so this also picks up completed results.
+  const hasPending = images.some(
+    (image) => image.status === "queued" || image.status === "processing",
+  );
+
+  useEffect(() => {
+    if (!hasPending) return;
+
+    const timer = setInterval(() => {
+      void listImages({ favorite: filter === "favorites" })
+        .then((result) => setImages(result.images))
+        .catch(() => {
+          // A failed poll is transient; the next tick retries.
+        });
+    }, 3000);
+
+    return () => clearInterval(timer);
+  }, [hasPending, filter]);
+
+  const generate = useCallback(
+    async (prompt: ImagePrompt) => {
+      const result = await createImage(prompt);
+
+      // Favorites excludes fresh generations, so only the "all" view shows
+      // the optimistic cards.
+      if (filter === "all") {
+        setImages((current) => [
+          ...result.images,
+          ...current.filter(
+            (image) => !result.images.some((added) => added.id === image.id),
+          ),
+        ]);
+      }
+    },
+    [filter],
+  );
 
   return (
     <main className="w-full pt-4 pb-56">
@@ -121,14 +152,8 @@ function Gallery() {
       ) : images.length === 0 && !error ? (
         <EmptyState favorite={filter === "favorites"} />
       ) : (
-        <div className="mt-4 flex flex-col gap-0.5">
-          {Array.from({ length: Math.ceil(images.length / 4) }, (_, row) => (
-            <ImageRow
-              key={row}
-              images={images.slice(row * 4, row * 4 + 4)}
-              onOpen={setSelected}
-            />
-          ))}
+        <div className="mt-4 px-0.5">
+          <ImageGrid images={images} onOpen={setSelected} />
         </div>
       )}
 
@@ -298,27 +323,45 @@ function ImageCard({
   );
 }
 
-function ImageRow({
+/** Target row height the flex basis is derived from. */
+const GRID_TARGET_HEIGHT_PX = 280;
+
+/**
+ * Justified grid: cards keep their aspect ratio at roughly the target size and
+ * grow to fill a line. The trailing filler absorbs leftover space, so the last
+ * line (or a single image) never stretches across the whole page.
+ */
+function ImageGrid({
   images,
   onOpen,
 }: {
   images: GeneratedImage[];
   onOpen: (image: GeneratedImage) => void;
 }) {
-  const ratios = images.map((image) => image.width / image.height);
-  const totalRatio = ratios.reduce((sum, ratio) => sum + ratio, 0);
-
   return (
-    <div
-      className="grid w-full gap-0.5"
-      style={{
-        gridTemplateColumns: ratios.map((ratio) => `${ratio}fr`).join(" "),
-        aspectRatio: `${totalRatio} / 1`,
-      }}
-    >
-      {images.map((image) => (
-        <ImageCard key={image.id} image={image} onOpen={() => onOpen(image)} />
-      ))}
+    <div className="flex flex-wrap gap-0.5">
+      {images.map((image) => {
+        const ratio = image.width / image.height || 1;
+
+        return (
+          <div
+            key={image.id}
+            className="max-w-full min-w-0"
+            style={{
+              flexGrow: ratio,
+              flexBasis: `${Math.round(ratio * GRID_TARGET_HEIGHT_PX)}px`,
+              aspectRatio: `${image.width} / ${image.height}`,
+            }}
+          >
+            <ImageCard image={image} onOpen={() => onOpen(image)} />
+          </div>
+        );
+      })}
+      <div
+        aria-hidden="true"
+        style={{ flexBasis: 0, flexGrow: 1000 }}
+        className="min-w-0"
+      />
     </div>
   );
 }

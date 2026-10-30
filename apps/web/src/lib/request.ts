@@ -15,11 +15,13 @@ export async function requestJson<T>(
   path: string,
   init: RequestInit = {},
 ): Promise<T> {
+  const isForm = init.body instanceof FormData;
+
   const response = await fetch(`${apiBaseUrl}${path}`, {
     ...init,
     credentials: "include",
     headers: {
-      "content-type": "application/json",
+      ...(isForm ? {} : { "content-type": "application/json" }),
       ...(init.headers ?? {}),
     },
   });

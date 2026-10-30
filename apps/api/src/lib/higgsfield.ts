@@ -61,10 +61,13 @@ class CliTimeoutError extends Error {
   }
 }
 
-async function runCli(args: string[]): Promise<CliResult> {
+async function runCli(
+  args: string[],
+  { timeoutMs = CLI_TIMEOUT_MS }: { timeoutMs?: number } = {},
+): Promise<CliResult> {
   try {
     const { stdout, stderr } = await execFileAsync(CLI_BIN, args, {
-      timeout: CLI_TIMEOUT_MS,
+      timeout: timeoutMs,
       maxBuffer: 1024 * 1024,
       env: { ...process.env, NO_COLOR: "1" },
     });
@@ -95,6 +98,25 @@ async function runCli(args: string[]): Promise<CliResult> {
   }
 }
 
+/**
+ * CLI failures print `Error: <message>` followed by an optional `Hint:` line.
+ * Keep the human-readable line only, so it can be shown under the prompt.
+ */
+function formatCliError(result: CliResult, fallback: string): string {
+  const output = (result.stderr || result.stdout).trim();
+
+  if (!output) return fallback;
+
+  const line = output
+    .split("\n")
+    .map((entry) => entry.trim())
+    .find((entry) => entry && !/^hint:/i.test(entry));
+
+  const message = (line ?? output).replace(/^error:\s*/i, "").trim();
+
+  return message.slice(0, 300) || fallback;
+}
+
 function isAuthError(result: CliResult): boolean {
   const output = `${result.stderr}\n${result.stdout}`;
 
@@ -117,6 +139,8 @@ export interface ImageCostParams {
   resolution?: string;
   quality?: string;
   extras?: Record<string, string>;
+  /** Upload ids passed as `--image-references`, for models that require them. */
+  referenceIds?: string[];
 }
 
 export class CostEstimateError extends Error {
@@ -138,6 +162,7 @@ export async function estimateImageCost({
   resolution,
   quality,
   extras,
+  referenceIds,
 }: ImageCostParams): Promise<number> {
   const args = ["generate", "cost", model, "--json", "--prompt", " "];
 
@@ -149,11 +174,16 @@ export async function estimateImageCost({
     args.push(`--${key}`, value);
   }
 
+  for (const id of referenceIds ?? []) {
+    args.push("--image-references", id);
+  }
+
   const result = await runCli(args);
 
   if (result.exitCode !== 0) {
-    const message = (result.stderr || result.stdout).trim();
-    throw new CostEstimateError(message || "Could not estimate the cost.");
+    throw new CostEstimateError(
+      formatCliError(result, "Could not estimate the cost."),
+    );
   }
 
   let parsed: unknown;
@@ -171,6 +201,174 @@ export async function estimateImageCost({
   }
 
   return credits;
+}
+
+/** Upload/creation can take a while, unlike the cheap status probes. */
+const GENERATE_TIMEOUT_MS = Number(
+  process.env.HIGGSFIELD_GENERATE_TIMEOUT_MS ?? 120_000,
+);
+
+export class GenerateError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "GenerateError";
+  }
+}
+
+export interface HiggsfieldUpload {
+  id: string;
+  url: string;
+  type: string;
+}
+
+/** Uploads a local file and returns the media id the CLI accepts in params. */
+export async function uploadMedia(filePath: string): Promise<HiggsfieldUpload> {
+  const result = await runCli(["upload", "create", filePath, "--json"], {
+    timeoutMs: GENERATE_TIMEOUT_MS,
+  });
+
+  if (result.exitCode !== 0) {
+    throw new GenerateError(
+      formatCliError(result, "Could not upload the reference image."),
+    );
+  }
+
+  let parsed: unknown;
+
+  try {
+    parsed = JSON.parse(result.stdout);
+  } catch {
+    throw new GenerateError("Unexpected `upload create` output.");
+  }
+
+  const upload = parsed as Partial<HiggsfieldUpload> | null;
+
+  if (
+    typeof upload?.id !== "string" ||
+    typeof upload.url !== "string" ||
+    typeof upload.type !== "string"
+  ) {
+    throw new GenerateError("Unexpected `upload create` output.");
+  }
+
+  return { id: upload.id, url: upload.url, type: upload.type };
+}
+
+export interface CreateImageJobParams {
+  model: string;
+  prompt: string;
+  aspectRatio?: string;
+  resolution?: string;
+  quality?: string;
+  extras?: Record<string, string>;
+  /** Upload ids passed as `--image-references`. */
+  referenceIds?: string[];
+}
+
+/**
+ * Creates one or more image jobs (`batch_size` can fan out into several ids)
+ * and returns the provider job ids. The command only enqueues work; results
+ * are read back with `getImageJob`.
+ */
+export async function createImageJobs({
+  model,
+  prompt,
+  aspectRatio,
+  resolution,
+  quality,
+  extras,
+  referenceIds,
+}: CreateImageJobParams): Promise<string[]> {
+  const args = ["generate", "create", model, "--json"];
+
+  // Some edit models accept an empty prompt, so only pass one when present.
+  if (prompt) args.push("--prompt", prompt);
+  if (aspectRatio) args.push("--aspect_ratio", aspectRatio);
+  if (resolution) args.push("--resolution", resolution);
+  if (quality) args.push("--quality", quality);
+
+  for (const [key, value] of Object.entries(extras ?? {})) {
+    args.push(`--${key}`, value);
+  }
+
+  for (const id of referenceIds ?? []) {
+    args.push("--image-references", id);
+  }
+
+  const result = await runCli(args, { timeoutMs: GENERATE_TIMEOUT_MS });
+
+  if (result.exitCode !== 0) {
+    throw new GenerateError(
+      formatCliError(result, "Could not create the generation."),
+    );
+  }
+
+  let parsed: unknown;
+
+  try {
+    parsed = JSON.parse(result.stdout);
+  } catch {
+    throw new GenerateError("Unexpected `generate create` output.");
+  }
+
+  const ids = Array.isArray(parsed)
+    ? parsed
+    : typeof parsed === "string"
+      ? [parsed]
+      : [];
+
+  if (
+    ids.length === 0 ||
+    !ids.every((id): id is string => typeof id === "string" && id.length > 0)
+  ) {
+    throw new GenerateError("Unexpected `generate create` output.");
+  }
+
+  return ids;
+}
+
+export interface HiggsfieldJob {
+  id: string;
+  job_type: string;
+  display_name?: string;
+  status: string;
+  created_at?: string;
+  result_url?: string | null;
+  min_result_url?: string | null;
+  fail_reason?: string | null;
+  error?: string | null;
+  params?: Record<string, unknown>;
+}
+
+/** One provider job, as returned by `higgsfield generate get <id> --json`. */
+export async function getImageJob(id: string): Promise<HiggsfieldJob> {
+  const result = await runCli(["generate", "get", id, "--json"]);
+
+  if (result.exitCode !== 0) {
+    throw new GenerateError(
+      formatCliError(result, "Could not read the generation."),
+    );
+  }
+
+  let parsed: unknown;
+
+  try {
+    parsed = JSON.parse(result.stdout);
+  } catch {
+    throw new GenerateError("Unexpected `generate get` output.");
+  }
+
+  const job = parsed as Partial<HiggsfieldJob> | null;
+
+  if (
+    typeof job?.id !== "string" ||
+    typeof job.status !== "string" ||
+    typeof job.job_type !== "string"
+  ) {
+    throw new GenerateError("Unexpected `generate get` output.");
+  }
+
+  return job as HiggsfieldJob;
 }
 
 function parseWorkspaces(stdout: string): HiggsfieldWorkspace[] {

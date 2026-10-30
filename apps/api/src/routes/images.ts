@@ -1,10 +1,26 @@
 import { and, desc, eq, isNull, lt } from "drizzle-orm";
 import type { Context } from "hono";
 import { HTTPException } from "hono/http-exception";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { db } from "../lib/db";
 import { imageGeneration, imageGenerationInput } from "../lib/db/schema";
-import { CostEstimateError, estimateImageCost } from "../lib/higgsfield";
+import {
+  CostEstimateError,
+  createImageJobs,
+  estimateImageCost,
+  GenerateError,
+  getImageJob,
+  uploadMedia,
+} from "../lib/higgsfield";
+import type { HiggsfieldJob, HiggsfieldUpload } from "../lib/higgsfield";
+import {
+  insertImageGenerations,
+  syncImageGeneration,
+  syncPendingImagesForUser,
+} from "../lib/image-jobs";
 import type { AuthEnv } from "../middleware/auth";
 
 const DEFAULT_LIMIT = 40;
@@ -28,6 +44,10 @@ export async function listImagesHandler(c: Context<AuthEnv>) {
   const status = c.req.query("status");
   const favorite = c.req.query("favorite") === "true";
   const cursor = Number(c.req.query("cursor") ?? "");
+
+  // The gallery polls this endpoint while jobs are running, so refreshing
+  // pending rows here keeps every open tab current without a separate route.
+  await syncPendingImagesForUser(userId);
 
   const filters = [
     eq(imageGeneration.userId, userId),
@@ -96,13 +116,17 @@ export async function getImageHandler(c: Context<AuthEnv>) {
     throw new HTTPException(404, { message: "Image not found" });
   }
 
+  // Pull the latest provider state before answering, so opening a card that
+  // just finished does not require waiting for the next gallery poll.
+  const synced = await syncImageGeneration(image);
+
   const inputs = await db
     .select()
     .from(imageGenerationInput)
-    .where(eq(imageGenerationInput.generationId, image.id))
+    .where(eq(imageGenerationInput.generationId, synced.id))
     .orderBy(imageGenerationInput.position);
 
-  return c.json({ image, inputs });
+  return c.json({ image: synced, inputs });
 }
 
 /**
@@ -143,6 +167,29 @@ function readToken(
   return value;
 }
 
+/** Validates the model-specific flags the prompt bar can send. */
+function readExtras(raw: unknown): Record<string, string> {
+  const extras: Record<string, string> = {};
+
+  if (raw === undefined || raw === null || raw === "") return extras;
+
+  if (typeof raw !== "object" || Array.isArray(raw)) {
+    throw new HTTPException(400, { message: "Invalid extra options." });
+  }
+
+  for (const [key, value] of Object.entries(raw)) {
+    if (!ALLOWED_EXTRA_FLAGS.has(key)) {
+      throw new HTTPException(400, { message: `Unknown option "${key}".` });
+    }
+
+    const flag = readToken(value, TOKEN_RE, key);
+
+    if (flag) extras[key] = flag;
+  }
+
+  return extras;
+}
+
 export async function estimateImageCostHandler(c: Context<AuthEnv>) {
   const body: unknown = await c.req.json().catch(() => null);
 
@@ -169,29 +216,7 @@ export async function estimateImageCostHandler(c: Context<AuthEnv>) {
     throw new HTTPException(400, { message: "Prompt is too long." });
   }
 
-  const extras: Record<string, string> = {};
-  const rawExtras = value.extras;
-
-  if (rawExtras !== undefined) {
-    if (
-      typeof rawExtras !== "object" ||
-      rawExtras === null ||
-      Array.isArray(rawExtras)
-    ) {
-      throw new HTTPException(400, { message: "Invalid extra options." });
-    }
-
-    for (const [key, raw] of Object.entries(rawExtras)) {
-      if (!ALLOWED_EXTRA_FLAGS.has(key)) {
-        throw new HTTPException(400, { message: `Unknown option "${key}".` });
-      }
-
-      const flag = readToken(raw, TOKEN_RE, key);
-
-      if (flag) extras[key] = flag;
-    }
-  }
-
+  const extras = readExtras(value.extras);
   const key = JSON.stringify([model, aspectRatio, resolution, quality, extras]);
   const cached = costCache.get(key);
 
@@ -229,5 +254,233 @@ export async function estimateImageCostHandler(c: Context<AuthEnv>) {
     throw new HTTPException(503, {
       message: "The Higgsfield CLI is unavailable.",
     });
+  }
+}
+
+const MAX_REFERENCES = 16;
+const MAX_REFERENCE_BYTES = 20 * 1024 * 1024;
+const DEFAULT_ASPECT_RATIO = "1:1";
+
+const IMAGE_EXTENSIONS: Record<string, string> = {
+  "image/png": ".png",
+  "image/jpeg": ".jpg",
+  "image/webp": ".webp",
+  "image/gif": ".gif",
+  "image/avif": ".avif",
+};
+
+const IMAGE_FILE_RE = /\.(png|jpe?g|webp|gif|avif)$/i;
+
+function readField(
+  body: Record<string, string | File | (string | File)[]>,
+  name: string,
+): string | undefined {
+  const raw = body[name];
+  const value = Array.isArray(raw) ? raw[0] : raw;
+
+  return typeof value === "string" ? value : undefined;
+}
+
+function readFiles(
+  body: Record<string, string | File | (string | File)[]>,
+  name: string,
+): File[] {
+  const raw = body[name];
+  const list = Array.isArray(raw) ? raw : raw === undefined ? [] : [raw];
+
+  return list.filter((entry): entry is File => entry instanceof File);
+}
+
+function readExtrasField(raw: string | undefined): Record<string, string> {
+  if (!raw) return {};
+
+  let parsed: unknown;
+
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new HTTPException(400, { message: "Invalid extra options." });
+  }
+
+  return readExtras(parsed);
+}
+
+function extensionFor(file: File) {
+  return (
+    IMAGE_EXTENSIONS[file.type] ??
+    (file.name.match(IMAGE_FILE_RE)?.[0]?.toLowerCase() || ".png")
+  );
+}
+
+/**
+ * Creates a generation: uploads any references, enqueues the CLI job(s),
+ * records them, and returns the rows so the gallery can show the new cards
+ * immediately. Progress after this point comes from polling `generate get`.
+ */
+export async function createImageHandler(c: Context<AuthEnv>) {
+  const userId = c.get("user").id;
+
+  const body = await c.req
+    .parseBody({ all: true })
+    .catch(() => null as unknown as Record<string, string | File>);
+
+  if (!body || typeof body !== "object") {
+    throw new HTTPException(400, { message: "Invalid generation request." });
+  }
+
+  const model = readToken(readField(body, "model"), MODEL_RE, "model");
+
+  if (!model) {
+    throw new HTTPException(400, { message: "Missing model." });
+  }
+
+  const prompt = (readField(body, "prompt") ?? "").trim();
+
+  if (prompt.length > PROMPT_MAX) {
+    throw new HTTPException(400, { message: "Prompt is too long." });
+  }
+
+  const aspectRatio = readToken(
+    readField(body, "aspectRatio"),
+    RATIO_RE,
+    "aspect ratio",
+  );
+  const resolution = readToken(
+    readField(body, "resolution"),
+    TOKEN_RE,
+    "resolution",
+  );
+  const quality = readToken(readField(body, "quality"), TOKEN_RE, "quality");
+  const extras = readExtrasField(readField(body, "extras"));
+
+  const files = readFiles(body, "references");
+
+  if (files.length > MAX_REFERENCES) {
+    throw new HTTPException(400, {
+      message: `At most ${MAX_REFERENCES} reference images are allowed.`,
+    });
+  }
+
+  for (const file of files) {
+    const isImage =
+      file.type.startsWith("image/") || IMAGE_FILE_RE.test(file.name);
+
+    if (!isImage) {
+      throw new HTTPException(400, {
+        message: "Reference files must be images.",
+      });
+    }
+
+    if (file.size === 0) {
+      throw new HTTPException(400, {
+        message: `"${file.name}" is empty.`,
+      });
+    }
+
+    if (file.size > MAX_REFERENCE_BYTES) {
+      throw new HTTPException(400, {
+        message: `"${file.name}" is larger than 20 MB.`,
+      });
+    }
+  }
+
+  let directory: string | undefined;
+
+  try {
+    const uploads: HiggsfieldUpload[] = [];
+
+    if (files.length > 0) {
+      directory = await mkdtemp(join(tmpdir(), "higgs-images-"));
+
+      for (const [index, file] of files.entries()) {
+        const path = join(directory, `reference-${index}${extensionFor(file)}`);
+        await writeFile(path, Buffer.from(await file.arrayBuffer()));
+        uploads.push(await uploadMedia(path));
+      }
+    }
+
+    const referenceIds = uploads.map((upload) => upload.id);
+
+    // The estimate is best effort: reference-required models may not price
+    // without the media, and a pricing failure must not block generation.
+    let creditsCost: number | null = null;
+
+    try {
+      creditsCost = await estimateImageCost({
+        model,
+        aspectRatio,
+        resolution,
+        quality,
+        extras,
+        referenceIds,
+      });
+    } catch {
+      creditsCost = null;
+    }
+
+    let jobIds: string[];
+
+    try {
+      jobIds = await createImageJobs({
+        model,
+        prompt,
+        aspectRatio,
+        resolution,
+        quality,
+        extras,
+        referenceIds,
+      });
+    } catch (error) {
+      if (error instanceof GenerateError) {
+        throw new HTTPException(400, { message: error.message.slice(0, 300) });
+      }
+
+      throw error;
+    }
+
+    const jobs = await Promise.all(
+      jobIds.map(async (id) => {
+        try {
+          return { job: await getImageJob(id) };
+        } catch {
+          // The job exists, we just could not read it yet; polling fills in
+          // the dimensions and status on the next pass.
+          const fallback: HiggsfieldJob = {
+            id,
+            job_type: model,
+            status: "queued",
+            params: {},
+          };
+
+          return { job: fallback };
+        }
+      }),
+    );
+
+    const images = await insertImageGenerations({
+      userId,
+      model,
+      prompt,
+      aspectRatio: aspectRatio ?? DEFAULT_ASPECT_RATIO,
+      resolution,
+      quality,
+      creditsCost,
+      jobs,
+      references: uploads,
+    });
+
+    return c.json({ images }, 201);
+  } catch (error) {
+    if (error instanceof HTTPException) throw error;
+
+    if (error instanceof GenerateError) {
+      throw new HTTPException(502, { message: error.message.slice(0, 300) });
+    }
+
+    throw error;
+  } finally {
+    if (directory) {
+      await rm(directory, { recursive: true, force: true }).catch(() => {});
+    }
   }
 }

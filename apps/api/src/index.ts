@@ -21,10 +21,12 @@ import {
 } from "./routes/admin-users";
 import { meHandler } from "./routes/me";
 import {
+  createImageHandler,
   estimateImageCostHandler,
   getImageHandler,
   listImagesHandler,
 } from "./routes/images";
+import { startImageJobWatcher } from "./lib/image-jobs";
 import { setupHandler, setupStatusHandler } from "./routes/setup";
 import { statusHandler } from "./routes/status";
 
@@ -61,6 +63,7 @@ const routes = app
   .get("/status", requireAuth, statusHandler)
   .get("/images", requireAuth, requireCapability("image"), listImagesHandler)
   .get("/images/:id", requireAuth, requireCapability("image"), getImageHandler)
+  .post("/images", requireAuth, requireCapability("image"), createImageHandler)
   .post(
     "/images/cost",
     requireAuth,
@@ -84,6 +87,10 @@ const routes = app
   .post("/admin/users/:id/ban", requireAuth, requireAdmin, banUserHandler)
   .post("/admin/users/:id/unban", requireAuth, requireAdmin, unbanUserHandler)
   .delete("/admin/users/:id", requireAuth, requireAdmin, deleteUserHandler);
+
+// Polls running generations in the background so statuses stay current even
+// when no gallery tab is open. Idempotent: repeated imports reuse one timer.
+startImageJobWatcher();
 
 export type AppType = typeof routes;
 export type {

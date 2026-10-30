@@ -833,12 +833,6 @@ export function ImagePromptBar({
           </div>
         </div>
 
-        <p className="mt-2 hidden text-center text-[11px] text-zinc-400 sm:block dark:text-zinc-500">
-          {model.name} · {aspectRatio}
-          {model.resolutions ? ` · ${formatOption(resolution ?? "")}` : ""}
-          {model.qualities ? ` · ${formatOption(quality ?? "")} quality` : ""}
-        </p>
-
         <input
           ref={fileInputRef}
           type="file"

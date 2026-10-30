@@ -55,3 +55,40 @@ export function estimateImageCost(
     ...init,
   });
 }
+
+export interface CreateImageInput {
+  model: string;
+  prompt: string;
+  aspectRatio: string;
+  resolution?: string;
+  quality?: string;
+  extras: Record<string, string>;
+  references: File[];
+}
+
+/** Uploads references and enqueues the generation; returns the new rows. */
+export function createImage(input: CreateImageInput) {
+  const body = new FormData();
+
+  body.set("model", input.model);
+  body.set("prompt", input.prompt);
+  body.set("aspectRatio", input.aspectRatio);
+  if (input.resolution) body.set("resolution", input.resolution);
+  if (input.quality) body.set("quality", input.quality);
+  body.set("extras", JSON.stringify(input.extras));
+
+  for (const file of input.references) {
+    body.append("references", file);
+  }
+
+  return requestJson<{ images: GeneratedImage[] }>("/images", {
+    method: "POST",
+    body,
+  });
+}
+
+export function getImage(id: string) {
+  return requestJson<{ image: GeneratedImage; inputs: unknown[] }>(
+    `/images/${id}`,
+  );
+}
