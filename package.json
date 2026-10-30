@@ -4,5 +4,13 @@
   "workspaces": [
     "packages/*",
     "apps/*"
-  ]
+  ],
+  "devDependencies": {
+    "prettier": "^3.9.10",
+    "prettier-plugin-tailwindcss": "^0.8.1"
+  },
+  "scripts": {
+    "fmt": "prettier --write .",
+    "fmt:check": "prettier --check ."
+  }
 }

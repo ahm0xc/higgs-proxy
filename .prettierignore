@@ -1,0 +1,19 @@
+# dependencies
+node_modules
+
+# build output
+dist
+out
+coverage
+*.tgz
+
+# lockfiles
+bun.lock
+
+# generated files
+apps/web/src/routeTree.gen.ts
+.tanstack
+
+# caches
+*.tsbuildinfo
+.cache
