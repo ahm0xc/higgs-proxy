@@ -1,5 +1,7 @@
 import { Link } from "@tanstack/react-router";
 
+import { ThemeToggle } from "~/components/theme-toggle";
+
 export const navItems = [
   { label: "Image", to: "/image" },
   { label: "Video", to: "/video" },
@@ -9,7 +11,7 @@ export const navItems = [
 export function CliStatus() {
   return (
     <div
-      className="flex items-center gap-2 rounded-md border border-zinc-200 bg-zinc-100 px-2.5 py-1 font-mono text-[11px] font-medium tracking-wider text-zinc-600 uppercase sm:px-3"
+      className="flex items-center gap-2 rounded-md border border-zinc-200 bg-zinc-100 px-2.5 py-1 font-mono text-[11px] font-medium tracking-wider text-zinc-600 uppercase sm:px-3 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400"
       title="CLI status (demo data)"
       aria-label="CLI status: connected"
     >
@@ -18,17 +20,22 @@ export function CliStatus() {
         <span className="relative inline-flex size-2 rounded-full bg-emerald-500" />
       </span>
       <span className="hidden sm:inline">CLI</span>
-      <span aria-hidden className="hidden text-zinc-400 sm:inline">
+      <span
+        aria-hidden
+        className="hidden text-zinc-400 sm:inline dark:text-zinc-600"
+      >
         •
       </span>
-      <span className="hidden text-zinc-800 sm:inline">connected</span>
+      <span className="hidden text-zinc-800 sm:inline dark:text-zinc-200">
+        connected
+      </span>
     </div>
   );
 }
 
 export function Header() {
   return (
-    <header className="sticky top-0 z-50 border-b border-zinc-200/80 bg-white/80 backdrop-blur-md">
+    <header className="sticky top-0 z-50 border-b border-zinc-200/80 bg-white/80 backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-950/80">
       <div className="mx-auto grid h-16 max-w-6xl grid-cols-[1fr_auto_1fr] items-center gap-3 px-4 sm:px-6">
         <Link to="/" className="flex items-center gap-2.5">
           <img
@@ -36,7 +43,7 @@ export function Header() {
             alt="higgs proxy logo"
             className="size-8 rounded-lg"
           />
-          <span className="hidden text-base font-semibold tracking-tight text-zinc-900 sm:inline">
+          <span className="hidden text-base font-semibold tracking-tight text-zinc-900 sm:inline dark:text-zinc-50">
             higgs proxy
           </span>
         </Link>
@@ -49,9 +56,10 @@ export function Header() {
             <Link
               key={item.to}
               to={item.to}
-              className="rounded-full px-2.5 py-1.5 text-xs font-medium text-zinc-600 transition-colors hover:bg-zinc-100 hover:text-zinc-900 sm:px-4 sm:text-sm"
+              className="rounded-full px-2.5 py-1.5 text-xs font-medium text-zinc-600 transition-colors hover:bg-zinc-100 hover:text-zinc-900 sm:px-4 sm:text-sm dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
               activeProps={{
-                className: "bg-zinc-100 text-zinc-900",
+                className:
+                  "bg-zinc-100 text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100",
               }}
             >
               {item.label}
@@ -59,7 +67,8 @@ export function Header() {
           ))}
         </nav>
 
-        <div className="justify-self-end">
+        <div className="flex items-center gap-1 justify-self-end sm:gap-2">
+          <ThemeToggle />
           <CliStatus />
         </div>
       </div>
