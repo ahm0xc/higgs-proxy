@@ -5,7 +5,11 @@ import { HTTPException } from "hono/http-exception";
 import { allowedOrigins } from "./lib/config";
 import { auth } from "./lib/auth";
 import type { AuthEnv } from "./middleware/auth";
-import { requireAdmin, requireAuth } from "./middleware/auth";
+import {
+  requireAdmin,
+  requireAuth,
+  requireCapability,
+} from "./middleware/auth";
 import {
   banUserHandler,
   createUserHandler,
@@ -16,6 +20,7 @@ import {
   updateCapabilitiesHandler,
 } from "./routes/admin-users";
 import { meHandler } from "./routes/me";
+import { getImageHandler, listImagesHandler } from "./routes/images";
 import { setupHandler, setupStatusHandler } from "./routes/setup";
 import { statusHandler } from "./routes/status";
 
@@ -50,6 +55,8 @@ const routes = app
   .post("/setup", setupHandler)
   .get("/me", requireAuth, meHandler)
   .get("/status", requireAuth, statusHandler)
+  .get("/images", requireAuth, requireCapability("image"), listImagesHandler)
+  .get("/images/:id", requireAuth, requireCapability("image"), getImageHandler)
   .get("/admin/users", requireAuth, requireAdmin, listUsersHandler)
   .post("/admin/users", requireAuth, requireAdmin, createUserHandler)
   .post(

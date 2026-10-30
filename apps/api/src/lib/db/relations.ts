@@ -10,6 +10,10 @@ export const relations = defineRelations(schema, (r) => ({
       from: r.user.id,
       to: r.userCapabilities.userId,
     }),
+    imageGenerations: r.many.imageGeneration({
+      from: r.user.id,
+      to: r.imageGeneration.userId,
+    }),
   },
   session: {
     user: r.one.user({
@@ -27,6 +31,22 @@ export const relations = defineRelations(schema, (r) => ({
     user: r.one.user({
       from: r.userCapabilities.userId,
       to: r.user.id,
+    }),
+  },
+  imageGeneration: {
+    user: r.one.user({
+      from: r.imageGeneration.userId,
+      to: r.user.id,
+    }),
+    inputs: r.many.imageGenerationInput({
+      from: r.imageGeneration.id,
+      to: r.imageGenerationInput.generationId,
+    }),
+  },
+  imageGenerationInput: {
+    generation: r.one.imageGeneration({
+      from: r.imageGenerationInput.generationId,
+      to: r.imageGeneration.id,
     }),
   },
 }));

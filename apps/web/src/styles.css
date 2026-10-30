@@ -12,6 +12,57 @@ html.dark {
   color-scheme: dark;
 }
 
+/* Sweep used by queued/processing generation placeholders. */
+@keyframes shimmer-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+.shimmer {
+  /* No `position` here on purpose: the element itself is positioned by
+     Tailwind, and an unlayered `position` would override that utility. */
+  overflow: hidden;
+  pointer-events: none;
+  background-image: linear-gradient(135deg, #f4f4f5, #e4e4e7, #f4f4f5);
+}
+
+.shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background-image: linear-gradient(
+    90deg,
+    transparent,
+    rgb(255 255 255 / 0.75),
+    transparent
+  );
+  animation: shimmer-sweep 1.6s ease-in-out infinite;
+}
+
+.dark .shimmer {
+  background-image: linear-gradient(135deg, #18181b, #27272a, #18181b);
+}
+
+.dark .shimmer::after {
+  background-image: linear-gradient(
+    90deg,
+    transparent,
+    rgb(255 255 255 / 0.16),
+    transparent
+  );
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shimmer::after {
+    animation: none;
+  }
+}
+
 * {
   box-sizing: border-box;
 }
