@@ -1,0 +1,8 @@
+{
+  "name": "higgs-proxy",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ]
+}
