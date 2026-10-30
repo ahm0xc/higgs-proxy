@@ -11,9 +11,12 @@
     "dev": "bun run --hot src/index.ts"
   },
   "dependencies": {
+    "drizzle-orm": "^1.0.0-rc.5",
     "hono": "^4.13.14"
   },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "^1.4.4",
+    "dotenv": "^18.0.9",
+    "drizzle-kit": "^1.0.0-rc.5"
   }
 }
