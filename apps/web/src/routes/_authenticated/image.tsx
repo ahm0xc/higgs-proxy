@@ -112,12 +112,12 @@ function Gallery() {
       ) : images.length === 0 && !error ? (
         <EmptyState favorite={filter === "favorites"} />
       ) : (
-        <div className="mt-4 columns-1 gap-0.5 sm:columns-2 lg:columns-3 xl:columns-4 2xl:columns-5">
-          {images.map((image) => (
-            <ImageCard
-              key={image.id}
-              image={image}
-              onOpen={() => setSelected(image)}
+        <div className="mt-4 flex flex-col gap-0.5">
+          {Array.from({ length: Math.ceil(images.length / 4) }, (_, row) => (
+            <ImageRow
+              key={row}
+              images={images.slice(row * 4, row * 4 + 4)}
+              onOpen={setSelected}
             />
           ))}
         </div>
@@ -226,11 +226,10 @@ function ImageCard({
     <button
       type="button"
       onClick={onOpen}
-      className="group relative mb-0.5 block w-full break-inside-avoid overflow-hidden bg-zinc-100 text-left dark:bg-zinc-900"
+      className="group relative block h-full min-h-0 w-full overflow-hidden bg-zinc-100 text-left dark:bg-zinc-900"
     >
       <div
-        className="relative w-full overflow-hidden"
-        style={{ aspectRatio: `${image.width} / ${image.height}` }}
+        className="relative h-full w-full overflow-hidden"
       >
         {image.status === "completed" && src ? (
           <img
@@ -253,18 +252,14 @@ function ImageCard({
         ) : (
           <div className="absolute inset-0 overflow-hidden bg-zinc-100 dark:bg-zinc-900">
             <div className="shimmer absolute inset-0" />
-            <div className="absolute inset-x-0 bottom-0 h-0.5 bg-zinc-300/70 dark:bg-zinc-700/70">
-              <div
-                className="h-full bg-zinc-900 transition-[width] duration-700 dark:bg-zinc-100"
-                style={{ width: `${image.progress}%` }}
-              />
-            </div>
           </div>
         )}
 
-        <div className="absolute top-2 left-2 flex gap-1.5">
-          <StatusBadge status={image.status} />
-        </div>
+        {image.status !== "completed" ? (
+          <div className="absolute top-2 left-2 flex gap-1.5">
+            <StatusBadge status={image.status} />
+          </div>
+        ) : null}
 
         {image.isFavorite ? (
           <span
@@ -291,6 +286,31 @@ function ImageCard({
         </div>
       </div>
     </button>
+  );
+}
+
+function ImageRow({
+  images,
+  onOpen,
+}: {
+  images: GeneratedImage[];
+  onOpen: (image: GeneratedImage) => void;
+}) {
+  const ratios = images.map((image) => image.width / image.height);
+  const totalRatio = ratios.reduce((sum, ratio) => sum + ratio, 0);
+
+  return (
+    <div
+      className="grid w-full gap-0.5"
+      style={{
+        gridTemplateColumns: ratios.map((ratio) => `${ratio}fr`).join(" "),
+        aspectRatio: `${totalRatio} / 1`,
+      }}
+    >
+      {images.map((image) => (
+        <ImageCard key={image.id} image={image} onOpen={() => onOpen(image)} />
+      ))}
+    </div>
   );
 }
 
