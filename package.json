@@ -10,6 +10,7 @@
     "prettier-plugin-tailwindcss": "^0.8.1"
   },
   "scripts": {
+    "dev": "bun run --parallel --filter '*' dev",
     "fmt": "prettier --write .",
     "fmt:check": "prettier --check ."
   }
