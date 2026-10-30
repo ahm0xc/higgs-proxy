@@ -9,104 +9,194 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from "./routes/__root"
-import { Route as IndexRouteImport } from "./routes/index"
-import { Route as AudioRouteImport } from "./routes/audio"
-import { Route as ImageRouteImport } from "./routes/image"
-import { Route as VideoRouteImport } from "./routes/video"
+import { Route as AuthenticatedRouteImport } from "./routes/_authenticated"
+import { Route as LoginRouteImport } from "./routes/login"
+import { Route as SetupRouteImport } from "./routes/setup"
+import { Route as AuthenticatedIndexRouteImport } from "./routes/_authenticated/index"
+import { Route as AuthenticatedAudioRouteImport } from "./routes/_authenticated/audio"
+import { Route as AuthenticatedImageRouteImport } from "./routes/_authenticated/image"
+import { Route as AuthenticatedVideoRouteImport } from "./routes/_authenticated/video"
+import { Route as AuthenticatedAdminUsersRouteImport } from "./routes/_authenticated/admin/users"
 
-const IndexRoute = IndexRouteImport.update({
+const AuthenticatedRoute = AuthenticatedRouteImport.update({
+  id: "/_authenticated",
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LoginRoute = LoginRouteImport.update({
+  id: "/login",
+  path: "/login",
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SetupRoute = SetupRouteImport.update({
+  id: "/setup",
+  path: "/setup",
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthenticatedIndexRoute = AuthenticatedIndexRouteImport.update({
   id: "/",
   path: "/",
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => AuthenticatedRoute,
 } as any)
-const AudioRoute = AudioRouteImport.update({
+const AuthenticatedAudioRoute = AuthenticatedAudioRouteImport.update({
   id: "/audio",
   path: "/audio",
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => AuthenticatedRoute,
 } as any)
-const ImageRoute = ImageRouteImport.update({
+const AuthenticatedImageRoute = AuthenticatedImageRouteImport.update({
   id: "/image",
   path: "/image",
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => AuthenticatedRoute,
 } as any)
-const VideoRoute = VideoRouteImport.update({
+const AuthenticatedVideoRoute = AuthenticatedVideoRouteImport.update({
   id: "/video",
   path: "/video",
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedAdminUsersRoute = AuthenticatedAdminUsersRouteImport.update({
+  id: "/admin/users",
+  path: "/admin/users",
+  getParentRoute: () => AuthenticatedRoute,
 } as any)
 
 export interface FileRoutesByFullPath {
-  "/": typeof IndexRoute
-  "/audio": typeof AudioRoute
-  "/image": typeof ImageRoute
-  "/video": typeof VideoRoute
+  "/": typeof AuthenticatedIndexRoute
+  "/login": typeof LoginRoute
+  "/setup": typeof SetupRoute
+  "/audio": typeof AuthenticatedAudioRoute
+  "/image": typeof AuthenticatedImageRoute
+  "/video": typeof AuthenticatedVideoRoute
+  "/admin/users": typeof AuthenticatedAdminUsersRoute
 }
 export interface FileRoutesByTo {
-  "/": typeof IndexRoute
-  "/audio": typeof AudioRoute
-  "/image": typeof ImageRoute
-  "/video": typeof VideoRoute
+  "/login": typeof LoginRoute
+  "/setup": typeof SetupRoute
+  "/audio": typeof AuthenticatedAudioRoute
+  "/image": typeof AuthenticatedImageRoute
+  "/video": typeof AuthenticatedVideoRoute
+  "/": typeof AuthenticatedIndexRoute
+  "/admin/users": typeof AuthenticatedAdminUsersRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
-  "/": typeof IndexRoute
-  "/audio": typeof AudioRoute
-  "/image": typeof ImageRoute
-  "/video": typeof VideoRoute
+  "/_authenticated": typeof AuthenticatedRouteWithChildren
+  "/login": typeof LoginRoute
+  "/setup": typeof SetupRoute
+  "/_authenticated/audio": typeof AuthenticatedAudioRoute
+  "/_authenticated/image": typeof AuthenticatedImageRoute
+  "/_authenticated/video": typeof AuthenticatedVideoRoute
+  "/_authenticated/": typeof AuthenticatedIndexRoute
+  "/_authenticated/admin/users": typeof AuthenticatedAdminUsersRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: "/" | "/audio" | "/image" | "/video"
+  fullPaths:
+    "/" | "/login" | "/setup" | "/audio" | "/image" | "/video" | "/admin/users"
   fileRoutesByTo: FileRoutesByTo
-  to: "/" | "/audio" | "/image" | "/video"
-  id: "__root__" | "/" | "/audio" | "/image" | "/video"
+  to:
+    "/login" | "/setup" | "/audio" | "/image" | "/video" | "/" | "/admin/users"
+  id:
+    | "__root__"
+    | "/_authenticated"
+    | "/login"
+    | "/setup"
+    | "/_authenticated/audio"
+    | "/_authenticated/image"
+    | "/_authenticated/video"
+    | "/_authenticated/"
+    | "/_authenticated/admin/users"
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
-  IndexRoute: typeof IndexRoute
-  AudioRoute: typeof AudioRoute
-  ImageRoute: typeof ImageRoute
-  VideoRoute: typeof VideoRoute
+  AuthenticatedRoute: typeof AuthenticatedRouteWithChildren
+  LoginRoute: typeof LoginRoute
+  SetupRoute: typeof SetupRoute
 }
 
 declare module "@tanstack/react-router" {
   interface FileRoutesByPath {
-    "/": {
-      id: "/"
+    "/_authenticated": {
+      id: "/_authenticated"
+      path: ""
+      fullPath: "/"
+      preLoaderRoute: typeof AuthenticatedRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    "/login": {
+      id: "/login"
+      path: "/login"
+      fullPath: "/login"
+      preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    "/setup": {
+      id: "/setup"
+      path: "/setup"
+      fullPath: "/setup"
+      preLoaderRoute: typeof SetupRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    "/_authenticated/": {
+      id: "/_authenticated/"
       path: "/"
       fullPath: "/"
-      preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AuthenticatedIndexRouteImport
+      parentRoute: typeof AuthenticatedRoute
     }
-    "/audio": {
-      id: "/audio"
+    "/_authenticated/audio": {
+      id: "/_authenticated/audio"
       path: "/audio"
       fullPath: "/audio"
-      preLoaderRoute: typeof AudioRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AuthenticatedAudioRouteImport
+      parentRoute: typeof AuthenticatedRoute
     }
-    "/image": {
-      id: "/image"
+    "/_authenticated/image": {
+      id: "/_authenticated/image"
       path: "/image"
       fullPath: "/image"
-      preLoaderRoute: typeof ImageRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AuthenticatedImageRouteImport
+      parentRoute: typeof AuthenticatedRoute
     }
-    "/video": {
-      id: "/video"
+    "/_authenticated/video": {
+      id: "/_authenticated/video"
       path: "/video"
       fullPath: "/video"
-      preLoaderRoute: typeof VideoRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AuthenticatedVideoRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    "/_authenticated/admin/users": {
+      id: "/_authenticated/admin/users"
+      path: "/admin/users"
+      fullPath: "/admin/users"
+      preLoaderRoute: typeof AuthenticatedAdminUsersRouteImport
+      parentRoute: typeof AuthenticatedRoute
     }
   }
 }
 
+interface AuthenticatedRouteChildren {
+  AuthenticatedAudioRoute: typeof AuthenticatedAudioRoute
+  AuthenticatedImageRoute: typeof AuthenticatedImageRoute
+  AuthenticatedVideoRoute: typeof AuthenticatedVideoRoute
+  AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute
+  AuthenticatedAdminUsersRoute: typeof AuthenticatedAdminUsersRoute
+}
+
+const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
+  AuthenticatedAudioRoute: AuthenticatedAudioRoute,
+  AuthenticatedImageRoute: AuthenticatedImageRoute,
+  AuthenticatedVideoRoute: AuthenticatedVideoRoute,
+  AuthenticatedIndexRoute: AuthenticatedIndexRoute,
+  AuthenticatedAdminUsersRoute: AuthenticatedAdminUsersRoute,
+}
+
+const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(
+  AuthenticatedRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
-  IndexRoute: IndexRoute,
-  AudioRoute: AudioRoute,
-  ImageRoute: ImageRoute,
-  VideoRoute: VideoRoute,
+  AuthenticatedRoute: AuthenticatedRouteWithChildren,
+  LoginRoute: LoginRoute,
+  SetupRoute: SetupRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

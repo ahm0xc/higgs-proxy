@@ -13,6 +13,7 @@ bun.lock
 # generated files
 apps/web/src/routeTree.gen.ts
 .tanstack
+apps/api/drizzle
 
 # caches
 *.tsbuildinfo

@@ -8,31 +8,50 @@ export type CliStatusState =
   | { state: "ready"; data: HiggsfieldStatusResponse }
   | { state: "request_failed"; error: string };
 
-export function useCliStatus(pollIntervalMs = 15_000) {
+export function useCliStatus({
+  enabled = true,
+  pollIntervalMs = 15_000,
+}: {
+  enabled?: boolean;
+  pollIntervalMs?: number;
+} = {}) {
   const [status, setStatus] = useState<CliStatusState>({ state: "loading" });
   const inFlight = useRef(false);
 
-  const refresh = useCallback(async (force = false) => {
-    if (inFlight.current) return;
-    inFlight.current = true;
+  const refresh = useCallback(
+    async (force = false) => {
+      if (!enabled || inFlight.current) return;
+      inFlight.current = true;
 
-    try {
-      const response = force
-        ? await api.status.$get({ query: { refresh: "1" } })
-        : await api.status.$get();
-      const data = (await response.json()) as HiggsfieldStatusResponse;
-      setStatus({ state: "ready", data });
-    } catch (error) {
-      setStatus({
-        state: "request_failed",
-        error: error instanceof Error ? error.message : String(error),
-      });
-    } finally {
-      inFlight.current = false;
-    }
-  }, []);
+      try {
+        const response = force
+          ? await api.status.$get({ query: { refresh: "1" } })
+          : await api.status.$get();
+
+        if (!response.ok) {
+          throw new Error(`Status request failed (${response.status})`);
+        }
+
+        const data = (await response.json()) as HiggsfieldStatusResponse;
+        setStatus({ state: "ready", data });
+      } catch (error) {
+        setStatus({
+          state: "request_failed",
+          error: error instanceof Error ? error.message : String(error),
+        });
+      } finally {
+        inFlight.current = false;
+      }
+    },
+    [enabled],
+  );
 
   useEffect(() => {
+    if (!enabled) {
+      setStatus({ state: "loading" });
+      return;
+    }
+
     void refresh();
 
     const interval = window.setInterval(() => {
@@ -53,7 +72,7 @@ export function useCliStatus(pollIntervalMs = 15_000) {
       window.clearInterval(interval);
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [pollIntervalMs, refresh]);
+  }, [enabled, pollIntervalMs, refresh]);
 
   return { status, refresh };
 }

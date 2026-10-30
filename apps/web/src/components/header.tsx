@@ -1,131 +1,43 @@
-import { Link } from "@tanstack/react-router";
-import type { HiggsfieldStatus } from "api";
+import { Link, useRouter } from "@tanstack/react-router";
+import type { Capabilities } from "~/lib/session";
 
-import { ThemeToggle } from "~/components/theme-toggle";
+import { SignedIn, useAuth } from "~/components/auth";
+import { CliStatus } from "~/components/cli-status";
+import { UserMenu } from "~/components/user-menu";
 import { useCliStatus } from "~/hooks/use-cli-status";
+import { authClient } from "~/lib/auth-client";
+import { invalidateSession } from "~/lib/session";
 
-export const navItems = [
-  { label: "Image", to: "/image" },
-  { label: "Video", to: "/video" },
-  { label: "Audio", to: "/audio" },
+const navItems = [
+  { label: "Image", to: "/image", capability: "image" },
+  { label: "Video", to: "/video", capability: "video" },
+  { label: "Audio", to: "/audio", capability: "audio" },
 ] as const;
 
-type DisplayStatus = HiggsfieldStatus | "loading" | "unreachable";
-
-const statusMeta: Record<
-  DisplayStatus,
-  { label: string; dot: string; text: string; ping: boolean }
-> = {
-  loading: {
-    label: "checking",
-    dot: "bg-zinc-400",
-    text: "text-zinc-600 dark:text-zinc-300",
-    ping: false,
-  },
-  healthy: {
-    label: "healthy",
-    dot: "bg-emerald-500",
-    text: "text-emerald-700 dark:text-emerald-400",
-    ping: true,
-  },
-  cli_not_installed: {
-    label: "no CLI",
-    dot: "bg-rose-500",
-    text: "text-rose-700 dark:text-rose-400",
-    ping: false,
-  },
-  unauthenticated: {
-    label: "signed out",
-    dot: "bg-amber-500",
-    text: "text-amber-700 dark:text-amber-400",
-    ping: false,
-  },
-  out_of_credits: {
-    label: "no credits",
-    dot: "bg-amber-500",
-    text: "text-amber-700 dark:text-amber-400",
-    ping: false,
-  },
-  error: {
-    label: "error",
-    dot: "bg-rose-500",
-    text: "text-rose-700 dark:text-rose-400",
-    ping: false,
-  },
-  unreachable: {
-    label: "unreachable",
-    dot: "bg-rose-500",
-    text: "text-rose-700 dark:text-rose-400",
-    ping: false,
-  },
-};
-
-function formatCredits(credits: number) {
-  return credits.toLocaleString(undefined, { maximumFractionDigits: 2 });
-}
-
-export function CliStatus() {
-  const { status, refresh } = useCliStatus();
-
-  const displayStatus: DisplayStatus =
-    status.state === "loading"
-      ? "loading"
-      : status.state === "request_failed"
-        ? "unreachable"
-        : status.data.status;
-
-  const meta = statusMeta[displayStatus];
-
-  let title = "Checking the Higgsfield CLI status…";
-
-  if (status.state === "ready") {
-    const details = [
-      status.data.message,
-      status.data.cli?.version ? `v${status.data.cli.version}` : null,
-      status.data.account?.credits !== undefined
-        ? `${formatCredits(status.data.account.credits)} credits`
-        : null,
-    ].filter(Boolean);
-
-    title = `${details.join(" · ")} — click to re-check`;
-  } else if (status.state === "request_failed") {
-    title = `Cannot reach the API: ${status.error}`;
-  }
-
-  return (
-    <button
-      type="button"
-      onClick={() => void refresh(true)}
-      className="flex cursor-pointer items-center gap-2 rounded-md border border-zinc-200 bg-zinc-100 px-2.5 py-1 font-mono text-[11px] font-medium tracking-wider uppercase transition-colors hover:border-zinc-300 hover:bg-zinc-200/70 sm:px-3 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-700 dark:hover:bg-zinc-800"
-      title={title}
-      aria-label={`CLI status: ${meta.label}`}
-      aria-live="polite"
-    >
-      <span className="relative flex size-2">
-        {meta.ping ? (
-          <span
-            className={`absolute inline-flex size-full animate-ping rounded-full opacity-75 ${meta.dot}`}
-          />
-        ) : null}
-        <span
-          className={`relative inline-flex size-2 rounded-full ${meta.dot}`}
-        />
-      </span>
-      <span className="hidden text-zinc-500 sm:inline dark:text-zinc-400">
-        CLI
-      </span>
-      <span
-        aria-hidden
-        className="hidden text-zinc-400 sm:inline dark:text-zinc-600"
-      >
-        •
-      </span>
-      <span className={`hidden sm:inline ${meta.text}`}>{meta.label}</span>
-    </button>
-  );
+function can(navItem: (typeof navItems)[number], capabilities: Capabilities) {
+  return capabilities[navItem.capability];
 }
 
 export function Header() {
+  const router = useRouter();
+  const auth = useAuth();
+  const cli = useCliStatus({ enabled: auth !== null });
+
+  async function signOut() {
+    await authClient.signOut();
+    invalidateSession();
+    await router.invalidate();
+    await router.navigate({ to: "/login" });
+  }
+
+  const visibleNav = auth
+    ? navItems.filter((item) => can(item, auth.capabilities))
+    : [];
+
+  // Workspace-wide balance, shown as the badge on the avatar.
+  const credits =
+    cli.status.state === "ready" ? cli.status.data.account?.credits : undefined;
+
   return (
     <header className="sticky top-0 z-50 border-b border-zinc-200/80 bg-white/80 backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-950/80">
       <div className="mx-auto grid h-16 max-w-6xl grid-cols-[1fr_auto_1fr] items-center gap-3 px-4 sm:px-6">
@@ -144,7 +56,7 @@ export function Header() {
           aria-label="Media types"
           className="flex items-center gap-0.5 sm:gap-1"
         >
-          {navItems.map((item) => (
+          {visibleNav.map((item) => (
             <Link
               key={item.to}
               to={item.to}
@@ -159,9 +71,19 @@ export function Header() {
           ))}
         </nav>
 
-        <div className="flex items-center gap-1 justify-self-end sm:gap-2">
-          <ThemeToggle />
-          <CliStatus />
+        <div className="flex items-center gap-2 justify-self-end sm:gap-3">
+          <SignedIn>
+            {(session) => (
+              <>
+                <CliStatus status={cli.status} refresh={cli.refresh} />
+                <UserMenu
+                  user={session.user}
+                  credits={credits}
+                  onSignOut={() => void signOut()}
+                />
+              </>
+            )}
+          </SignedIn>
         </div>
       </div>
     </header>
