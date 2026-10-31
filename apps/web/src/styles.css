@@ -4,6 +4,13 @@
 /* Class-based dark mode: `.dark` wins over the system preference. */
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* Higgsfield's primary lime, used for the accent and focus rings. The default
+   accent is blue; lime is bright, so its foreground has to be dark. */
+:root {
+  --accent: #d1fe17;
+  --accent-foreground: #0b0b0c;
+}
+
 html {
   color-scheme: light;
 }
