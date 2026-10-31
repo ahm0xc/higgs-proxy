@@ -203,6 +203,134 @@ export async function estimateImageCost({
   return credits;
 }
 
+export interface HiggsfieldVoice {
+  id: string;
+  name: string;
+  type: "preset" | "element";
+  createdAt: string;
+}
+
+interface VoicePage {
+  items?: Array<{
+    id?: unknown;
+    name?: unknown;
+    voice_type?: unknown;
+    category?: unknown;
+    status?: unknown;
+    created_at?: unknown;
+  }>;
+  cursor?: string | null;
+}
+
+/**
+ * The workspace voice library, from `higgsfield voices list --json`. Preset
+ * voices are built in; element voices are cloned by the user. Both are valid
+ * `--voice-id` values for text-to-speech.
+ */
+export async function listVoices(): Promise<HiggsfieldVoice[]> {
+  const voices: HiggsfieldVoice[] = [];
+  let cursor: string | null = null;
+
+  for (let page = 0; page < 5; page += 1) {
+    const args = ["voices", "list", "--json", "--size", "100"];
+
+    if (cursor) args.push("--cursor", cursor);
+
+    const result = await runCli(args);
+
+    if (result.exitCode !== 0) {
+      throw new GenerateError(
+        formatCliError(result, "Could not read the voice library."),
+      );
+    }
+
+    let parsed: VoicePage;
+
+    try {
+      parsed = JSON.parse(result.stdout) as VoicePage;
+    } catch {
+      throw new GenerateError("Unexpected `voices list` output.");
+    }
+
+    for (const item of parsed.items ?? []) {
+      if (
+        typeof item.id !== "string" ||
+        typeof item.name !== "string" ||
+        (item.voice_type !== "preset" && item.voice_type !== "element")
+      ) {
+        continue;
+      }
+
+      if (item.category !== undefined && item.category !== "voice") continue;
+
+      if (item.status !== undefined && item.status !== "completed") continue;
+
+      voices.push({
+        id: item.id,
+        name: item.name,
+        type: item.voice_type,
+        createdAt:
+          typeof item.created_at === "string"
+            ? item.created_at
+            : new Date(0).toISOString(),
+      });
+    }
+
+    cursor = parsed.cursor ?? null;
+
+    if (!cursor) break;
+  }
+
+  return voices;
+}
+
+export interface AudioCostParams {
+  model: string;
+  prompt: string;
+  /** Verbatim CLI flags: variant, voice_id, voice_type, language, ... */
+  params?: Record<string, string>;
+}
+
+/**
+ * Estimated credits for a text-to-speech job. Unlike images, the price scales
+ * with the script length, so the real prompt is passed through.
+ */
+export async function estimateAudioCost({
+  model,
+  prompt,
+  params,
+}: AudioCostParams): Promise<number> {
+  const args = ["generate", "cost", model, "--json", "--prompt", prompt || " "];
+
+  for (const [key, value] of Object.entries(params ?? {})) {
+    args.push(`--${key}`, value);
+  }
+
+  const result = await runCli(args);
+
+  if (result.exitCode !== 0) {
+    throw new CostEstimateError(
+      formatCliError(result, "Could not estimate the cost."),
+    );
+  }
+
+  let parsed: unknown;
+
+  try {
+    parsed = JSON.parse(result.stdout);
+  } catch {
+    throw new CostEstimateError("Unexpected `generate cost` output.");
+  }
+
+  const credits = (parsed as { credits?: unknown } | null)?.credits;
+
+  if (typeof credits !== "number" || !Number.isFinite(credits) || credits < 0) {
+    throw new CostEstimateError("Unexpected `generate cost` output.");
+  }
+
+  return credits;
+}
+
 /** Upload/creation can take a while, unlike the cheap status probes. */
 const GENERATE_TIMEOUT_MS = Number(
   process.env.HIGGSFIELD_GENERATE_TIMEOUT_MS ?? 120_000,

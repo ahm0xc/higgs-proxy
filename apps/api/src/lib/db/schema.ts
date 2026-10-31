@@ -194,6 +194,54 @@ export const imageGenerationInput = sqliteTable(
   ],
 );
 
+/**
+ * Cached voice previews for the audio voice picker.
+ *
+ * A preview is one short text-to-speech generation of a sample sentence, made
+ * once per voice and reused forever after. The provider job id is kept so a
+ * pending preview can be refreshed with `generate get`, and the finished audio
+ * is streamed through our origin (the provider CDN is cross-origin).
+ */
+export const audioVoicePreview = sqliteTable(
+  "audio_voice_preview",
+  {
+    id: text("id").primaryKey(),
+    // Workspace voice id, or an Inworld enum value like "Loretta (en)".
+    voiceId: text("voice_id").notNull(),
+    // "preset" | "element"
+    voiceType: text("voice_type").notNull(),
+    voiceName: text("voice_name").notNull(),
+
+    // TTS used to render the sample: text2speech_v2 or inworld_text_to_speech.
+    model: text("model").notNull(),
+    sentence: text("sentence").notNull(),
+
+    providerJobId: text("provider_job_id").notNull(),
+    // "queued" | "processing" | "completed" | "failed" | "cancelled"
+    status: text("status").notNull().default("queued"),
+    resultUrl: text("result_url"),
+    error: text("error"),
+
+    // Voice metadata revealed by the provider in the job params.
+    gender: text("gender"),
+    age: text("age"),
+    thumbnailUrl: text("thumbnail_url"),
+    sourceUrl: text("source_url"),
+    waveformUrl: text("waveform_url"),
+
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+    completedAt: integer("completed_at", { mode: "timestamp_ms" }),
+  },
+  (table) => [
+    uniqueIndex("audio_voice_preview_voice_idx").on(
+      table.voiceId,
+      table.voiceType,
+    ),
+    index("audio_voice_preview_status_idx").on(table.status),
+  ],
+);
+
 export const schema = {
   user,
   session,
@@ -202,4 +250,5 @@ export const schema = {
   userCapabilities,
   imageGeneration,
   imageGenerationInput,
+  audioVoicePreview,
 };

@@ -19,6 +19,12 @@ import {
   unbanUserHandler,
   updateCapabilitiesHandler,
 } from "./routes/admin-users";
+import {
+  estimateAudioCostHandler,
+  listVoicesHandler,
+  voicePreviewAudioHandler,
+  voicePreviewHandler,
+} from "./routes/audio";
 import { meHandler } from "./routes/me";
 import {
   createImageHandler,
@@ -84,6 +90,30 @@ const routes = app
     requireAuth,
     requireCapability("image"),
     estimateImageCostHandler,
+  )
+  .get(
+    "/audio/voices",
+    requireAuth,
+    requireCapability("audio"),
+    listVoicesHandler,
+  )
+  .get(
+    "/audio/voices/preview/audio",
+    requireAuth,
+    requireCapability("audio"),
+    voicePreviewAudioHandler,
+  )
+  .post(
+    "/audio/voices/preview",
+    requireAuth,
+    requireCapability("audio"),
+    voicePreviewHandler,
+  )
+  .post(
+    "/audio/cost",
+    requireAuth,
+    requireCapability("audio"),
+    estimateAudioCostHandler,
   )
   .get("/admin/users", requireAuth, requireAdmin, listUsersHandler)
   .post("/admin/users", requireAuth, requireAdmin, createUserHandler)
