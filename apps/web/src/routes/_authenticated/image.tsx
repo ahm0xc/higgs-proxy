@@ -548,9 +548,11 @@ function Lightbox({
               <p className="text-xs font-medium tracking-wide text-zinc-500 uppercase dark:text-zinc-400">
                 {image.modelName}
               </p>
-              <p className="mt-1 text-sm font-medium text-zinc-900 dark:text-zinc-100">
-                {STATUS_LABEL[image.status]}
-              </p>
+              {image.status !== "completed" ? (
+                <p className="mt-1 text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                  {STATUS_LABEL[image.status]}
+                </p>
+              ) : null}
             </div>
             <button
               type="button"

@@ -20,7 +20,11 @@ import {
   updateCapabilitiesHandler,
 } from "./routes/admin-users";
 import {
+  audioFileHandler,
+  createAudioHandler,
   estimateAudioCostHandler,
+  getAudioHandler,
+  listAudioHandler,
   listVoicesHandler,
   voicePreviewAudioHandler,
   voicePreviewHandler,
@@ -35,6 +39,7 @@ import {
   setImageFavoriteHandler,
 } from "./routes/images";
 import { startImageJobWatcher } from "./lib/image-jobs";
+import { startAudioJobWatcher } from "./lib/audio-jobs";
 import { setupHandler, setupStatusHandler } from "./routes/setup";
 import { statusHandler } from "./routes/status";
 
@@ -115,6 +120,15 @@ const routes = app
     requireCapability("audio"),
     estimateAudioCostHandler,
   )
+  .get("/audio", requireAuth, requireCapability("audio"), listAudioHandler)
+  .post("/audio", requireAuth, requireCapability("audio"), createAudioHandler)
+  .get(
+    "/audio/:id/audio",
+    requireAuth,
+    requireCapability("audio"),
+    audioFileHandler,
+  )
+  .get("/audio/:id", requireAuth, requireCapability("audio"), getAudioHandler)
   .get("/admin/users", requireAuth, requireAdmin, listUsersHandler)
   .post("/admin/users", requireAuth, requireAdmin, createUserHandler)
   .post(
@@ -136,6 +150,7 @@ const routes = app
 // Polls running generations in the background so statuses stay current even
 // when no gallery tab is open. Idempotent: repeated imports reuse one timer.
 startImageJobWatcher();
+startAudioJobWatcher();
 
 export type AppType = typeof routes;
 export type {

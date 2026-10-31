@@ -98,3 +98,68 @@ export function requestVoicePreview(input: VoicePreviewInput) {
 export function voicePreviewAudioUrl(path: string) {
   return `${apiBaseUrl}${path}`;
 }
+
+export type AudioGenerationStatus =
+  "queued" | "processing" | "completed" | "failed" | "cancelled";
+
+export interface AudioGeneration {
+  id: string;
+  userId: string;
+  userName: string | null;
+  providerJobId?: string | null;
+  model: string;
+  modelName: string;
+  prompt: string;
+  variant: string | null;
+  voiceId: string | null;
+  voiceType: string | null;
+  voiceName: string | null;
+  status: AudioGenerationStatus;
+  resultUrl: string | null;
+  error: string | null;
+  params: Record<string, string> | null;
+  creditsCost: number | null;
+  durationSeconds: number | null;
+  voiceGender: string | null;
+  voiceAge: string | null;
+  voiceThumbnailUrl: string | null;
+  voiceWaveformUrl: string | null;
+  createdAt: string;
+  completedAt: string | null;
+}
+
+export interface AudioListResponse {
+  audio: AudioGeneration[];
+  nextCursor: number | null;
+}
+
+/** Newest first. The API refreshes pending jobs before answering. */
+export function listAudioGenerations(limit = 60) {
+  return requestJson<AudioListResponse>(`/audio?limit=${limit}`);
+}
+
+export interface CreateAudioInput {
+  model: string;
+  prompt: string;
+  /** Verbatim CLI flags: variant, voice_id, voice_type, language, ... */
+  params: Record<string, string>;
+  voiceName?: string;
+}
+
+/** Enqueues the text-to-speech job; returns the fresh rows to show at once. */
+export function createAudioGeneration(input: CreateAudioInput) {
+  return requestJson<{ audio: AudioGeneration[] }>("/audio", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+/** Same-origin streaming endpoint, used by the list player. */
+export function audioPlaybackUrl(id: string) {
+  return `${apiBaseUrl}/audio/${id}/audio`;
+}
+
+/** Same-origin attachment endpoint for the download button. */
+export function audioDownloadUrl(id: string) {
+  return `${apiBaseUrl}/audio/${id}/audio?download=1`;
+}

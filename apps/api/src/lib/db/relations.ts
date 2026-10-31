@@ -14,6 +14,10 @@ export const relations = defineRelations(schema, (r) => ({
       from: r.user.id,
       to: r.imageGeneration.userId,
     }),
+    audioGenerations: r.many.audioGeneration({
+      from: r.user.id,
+      to: r.audioGeneration.userId,
+    }),
   },
   session: {
     user: r.one.user({
@@ -47,6 +51,12 @@ export const relations = defineRelations(schema, (r) => ({
     generation: r.one.imageGeneration({
       from: r.imageGenerationInput.generationId,
       to: r.imageGeneration.id,
+    }),
+  },
+  audioGeneration: {
+    user: r.one.user({
+      from: r.audioGeneration.userId,
+      to: r.user.id,
     }),
   },
 }));

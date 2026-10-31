@@ -1,6 +1,7 @@
 import {
   index,
   integer,
+  real,
   sqliteTable,
   text,
   uniqueIndex,
@@ -242,6 +243,67 @@ export const audioVoicePreview = sqliteTable(
   ],
 );
 
+/**
+ * Text-to-speech generations.
+ *
+ * One row per provider job. `batch_size` models (Qwen TTS) can fan one submit
+ * out into several rows, each with its own provider job id and result.
+ *
+ * `params` holds the exact CLI flags the request used (`variant`, `voice_id`,
+ * `voice_type`, `language`, `speech_rate`, ...) so a failed generation can be
+ * retried without asking the user to rebuild the configuration. Voice metadata
+ * (thumbnail, waveform, gender, age) comes back from the provider once the job
+ * has run and is denormalized here for the list.
+ */
+export const audioGeneration = sqliteTable(
+  "audio_generation",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+
+    providerJobId: text("provider_job_id"),
+    model: text("model").notNull(),
+    modelName: text("model_name").notNull(),
+
+    prompt: text("prompt").notNull(),
+
+    // Voice selection, kept flat so the card can render without the params blob.
+    variant: text("variant"),
+    voiceId: text("voice_id"),
+    voiceType: text("voice_type"),
+    voiceName: text("voice_name"),
+
+    // "queued" | "processing" | "completed" | "failed" | "cancelled"
+    status: text("status").notNull().default("queued"),
+    resultUrl: text("result_url"),
+    error: text("error"),
+
+    params: text("params", { mode: "json" }).$type<Record<string, string>>(),
+
+    creditsCost: real("credits_cost"),
+    durationSeconds: real("duration_seconds"),
+
+    voiceGender: text("voice_gender"),
+    voiceAge: text("voice_age"),
+    voiceThumbnailUrl: text("voice_thumbnail_url"),
+    voiceWaveformUrl: text("voice_waveform_url"),
+
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+    completedAt: integer("completed_at", { mode: "timestamp_ms" }),
+  },
+  (table) => [
+    index("audio_generation_user_created_idx").on(
+      table.userId,
+      table.createdAt,
+    ),
+    uniqueIndex("audio_generation_provider_job_idx").on(table.providerJobId),
+    index("audio_generation_status_idx").on(table.status),
+  ],
+);
+
 export const schema = {
   user,
   session,
@@ -251,4 +313,5 @@ export const schema = {
   imageGeneration,
   imageGenerationInput,
   audioVoicePreview,
+  audioGeneration,
 };

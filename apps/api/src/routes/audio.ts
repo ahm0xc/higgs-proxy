@@ -1,12 +1,23 @@
+import { and, desc, eq, lt } from "drizzle-orm";
 import type { Context } from "hono";
 import { HTTPException } from "hono/http-exception";
 
+import { db } from "../lib/db";
+import { audioGeneration, user } from "../lib/db/schema";
+import {
+  insertAudioGenerations,
+  syncAudioGeneration,
+  syncPendingAudioForUser,
+} from "../lib/audio-jobs";
 import {
   CostEstimateError,
+  createImageJobs,
   estimateAudioCost,
   GenerateError,
+  getImageJob,
   listVoices,
 } from "../lib/higgsfield";
+import type { HiggsfieldJob } from "../lib/higgsfield";
 import { getPreviewRow, requestVoicePreview } from "../lib/audio-preview";
 import type { VoicePreviewRequest } from "../lib/audio-preview";
 import type { AuthEnv } from "../middleware/auth";
@@ -99,12 +110,12 @@ function fail(error: unknown, fallback: string): never {
     throw new HTTPException(502, { message: error.message });
   }
 
-  // The preview table ships with a migration the operator applies manually.
-  // Without it, every query fails with a generic SQLite error.
+  // New audio tables ship with migrations the operator applies manually.
+  // Without them, every query fails with a generic SQLite error.
   if (/no such table/i.test(errorText(error))) {
     throw new HTTPException(503, {
       message:
-        "Voice preview storage is not ready. Apply the audio_voice_preview database migration, then try again.",
+        "Audio storage is not ready. Apply the latest database migration, then try again.",
     });
   }
 
@@ -259,6 +270,341 @@ function readParamValue(key: string, value: unknown): string {
 }
 
 /**
+ * Merges the model defaults with the flags the prompt bar sent, dropping empty
+ * optional values so the provider keeps its own default.
+ */
+function readAudioParams(
+  raw: unknown,
+  rules: AudioModelRules,
+): Record<string, string> {
+  if (
+    raw !== undefined &&
+    (typeof raw !== "object" || raw === null || Array.isArray(raw))
+  ) {
+    throw new HTTPException(400, { message: "Invalid audio options." });
+  }
+
+  const params: Record<string, string> = { ...rules.defaults };
+
+  for (const [key, value] of Object.entries(
+    (raw as Record<string, unknown> | undefined) ?? {},
+  )) {
+    if (!rules.allowed.has(key)) {
+      throw new HTTPException(400, { message: `Unknown option "${key}".` });
+    }
+
+    const parsed = readParamValue(key, value);
+
+    if (parsed !== "") params[key] = parsed;
+  }
+
+  return params;
+}
+
+interface AudioSelection {
+  voiceId: string;
+  voiceType: string;
+  voiceName: string;
+}
+
+/** Reads the voice out of the resolved params, rejecting the cost placeholder. */
+function audioSelection(
+  model: string,
+  params: Record<string, string>,
+  voiceName?: unknown,
+): AudioSelection {
+  if (model === "inworld_text_to_speech") {
+    const voice = params.voice;
+
+    if (!voice || voice === PLACEHOLDER_VOICE_ID) {
+      throw new HTTPException(400, { message: "Choose a voice to continue." });
+    }
+
+    return { voiceId: voice, voiceType: "preset", voiceName: voice };
+  }
+
+  const voiceId = params.voice_id;
+  const voiceType = params.voice_type;
+
+  if (!voiceId || voiceId === PLACEHOLDER_VOICE_ID) {
+    throw new HTTPException(400, { message: "Choose a voice to continue." });
+  }
+
+  if (voiceType !== "preset" && voiceType !== "element") {
+    throw new HTTPException(400, { message: "Invalid voice type." });
+  }
+
+  return {
+    voiceId,
+    voiceType,
+    voiceName:
+      typeof voiceName === "string" && voiceName.trim()
+        ? voiceName.trim().slice(0, 100)
+        : voiceId,
+  };
+}
+
+const DEFAULT_LIMIT = 40;
+const MAX_LIMIT = 100;
+
+function parseLimit(raw: string | undefined): number {
+  const value = Number(raw ?? DEFAULT_LIMIT);
+
+  if (!Number.isFinite(value)) return DEFAULT_LIMIT;
+
+  return Math.min(Math.max(Math.trunc(value), 1), MAX_LIMIT);
+}
+
+/**
+ * The generation list for the signed-in user, newest first. Pending jobs are
+ * refreshed from the CLI before answering, so the page's poll loop is the only
+ * thing it needs.
+ */
+export async function listAudioHandler(c: Context<AuthEnv>) {
+  const userId = c.get("user").id;
+  const limit = parseLimit(c.req.query("limit"));
+  const cursor = Number(c.req.query("cursor") ?? "");
+
+  await syncPendingAudioForUser(userId);
+
+  const filters = [eq(audioGeneration.userId, userId)];
+
+  if (Number.isFinite(cursor) && cursor > 0) {
+    filters.push(lt(audioGeneration.createdAt, new Date(cursor)));
+  }
+
+  const rows = await db
+    .select({
+      id: audioGeneration.id,
+      userId: audioGeneration.userId,
+      userName: user.name,
+      providerJobId: audioGeneration.providerJobId,
+      model: audioGeneration.model,
+      modelName: audioGeneration.modelName,
+      prompt: audioGeneration.prompt,
+      variant: audioGeneration.variant,
+      voiceId: audioGeneration.voiceId,
+      voiceType: audioGeneration.voiceType,
+      voiceName: audioGeneration.voiceName,
+      status: audioGeneration.status,
+      resultUrl: audioGeneration.resultUrl,
+      error: audioGeneration.error,
+      params: audioGeneration.params,
+      creditsCost: audioGeneration.creditsCost,
+      durationSeconds: audioGeneration.durationSeconds,
+      voiceGender: audioGeneration.voiceGender,
+      voiceAge: audioGeneration.voiceAge,
+      voiceThumbnailUrl: audioGeneration.voiceThumbnailUrl,
+      voiceWaveformUrl: audioGeneration.voiceWaveformUrl,
+      createdAt: audioGeneration.createdAt,
+      completedAt: audioGeneration.completedAt,
+    })
+    .from(audioGeneration)
+    .leftJoin(user, eq(user.id, audioGeneration.userId))
+    .where(and(...filters))
+    .orderBy(desc(audioGeneration.createdAt))
+    .limit(limit + 1);
+
+  const page = rows.slice(0, limit);
+  const last = page.at(-1);
+
+  return c.json({
+    audio: page,
+    nextCursor: rows.length > limit && last ? last.createdAt.getTime() : null,
+  });
+}
+
+/** Full row, refreshed from the provider before answering. */
+export async function getAudioHandler(c: Context<AuthEnv>) {
+  const userId = c.get("user").id;
+  const id = c.req.param("id");
+
+  const [row] = await db
+    .select()
+    .from(audioGeneration)
+    .where(
+      and(eq(audioGeneration.id, id ?? ""), eq(audioGeneration.userId, userId)),
+    )
+    .limit(1);
+
+  if (!row) {
+    throw new HTTPException(404, { message: "Audio not found" });
+  }
+
+  const synced = await syncAudioGeneration(row);
+
+  return c.json({ audio: synced });
+}
+
+const AUDIO_EXTENSIONS: Record<string, string> = {
+  "audio/mpeg": "mp3",
+  "audio/mp3": "mp3",
+  "audio/wav": "wav",
+  "audio/x-wav": "wav",
+  "audio/wave": "wav",
+  "audio/ogg": "ogg",
+  "audio/opus": "opus",
+  "audio/aac": "aac",
+  "audio/flac": "flac",
+};
+
+/**
+ * Streams a finished generation through our origin. Range requests are
+ * forwarded so the player can seek without downloading the whole file first.
+ * Adding `?download=1` turns it into an attachment.
+ */
+export async function audioFileHandler(c: Context<AuthEnv>) {
+  const userId = c.get("user").id;
+  const id = c.req.param("id");
+
+  const [row] = await db
+    .select({
+      id: audioGeneration.id,
+      resultUrl: audioGeneration.resultUrl,
+    })
+    .from(audioGeneration)
+    .where(
+      and(eq(audioGeneration.id, id ?? ""), eq(audioGeneration.userId, userId)),
+    )
+    .limit(1);
+
+  if (!row?.resultUrl) {
+    throw new HTTPException(404, { message: "Audio is not ready." });
+  }
+
+  const range = c.req.header("range");
+  const upstream = await fetch(row.resultUrl, {
+    headers: range ? { range } : {},
+  });
+
+  if (!upstream.ok || !upstream.body) {
+    throw new HTTPException(502, {
+      message: "Could not fetch the audio file.",
+    });
+  }
+
+  const contentType = upstream.headers.get("content-type") ?? "audio/mpeg";
+  const extension = AUDIO_EXTENSIONS[contentType.split(";")[0]] ?? "mp3";
+  const headers = new Headers({
+    "content-type": contentType,
+    "cache-control": "private, max-age=86400",
+    "accept-ranges": upstream.headers.get("accept-ranges") ?? "bytes",
+  });
+  const contentLength = upstream.headers.get("content-length");
+  const contentRange = upstream.headers.get("content-range");
+
+  if (contentLength) headers.set("content-length", contentLength);
+  if (contentRange) headers.set("content-range", contentRange);
+
+  if (c.req.query("download") === "1") {
+    headers.set(
+      "content-disposition",
+      `attachment; filename="higgs-${row.id.slice(0, 8)}.${extension}"`,
+    );
+  }
+
+  return new Response(upstream.body, {
+    status: upstream.status,
+    headers,
+  });
+}
+
+/**
+ * Creates a text-to-speech generation from the prompt bar's script, model,
+ * voice, and settings. The CLI enqueues the job; the row is inserted with its
+ * provider id so the list can poll it to completion.
+ */
+export async function createAudioHandler(c: Context<AuthEnv>) {
+  const userId = c.get("user").id;
+  const body: unknown = await c.req.json().catch(() => null);
+
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    throw new HTTPException(400, { message: "Invalid generation request." });
+  }
+
+  const value = body as Record<string, unknown>;
+  const model = value.model;
+
+  if (typeof model !== "string" || !(model in AUDIO_MODELS)) {
+    throw new HTTPException(400, { message: "Unknown audio model." });
+  }
+
+  if (typeof value.prompt !== "string" || value.prompt.trim().length === 0) {
+    throw new HTTPException(400, { message: "The script is empty." });
+  }
+
+  const prompt = value.prompt.trim();
+
+  if (prompt.length > PROMPT_MAX) {
+    throw new HTTPException(400, { message: "The script is too long." });
+  }
+
+  const rules = AUDIO_MODELS[model] as AudioModelRules;
+  const params = readAudioParams(value.params, rules);
+  const selection = audioSelection(model, params, value.voiceName);
+
+  try {
+    let creditsCost: number | null = null;
+
+    try {
+      creditsCost = await estimateAudioCost({ model, prompt, params });
+    } catch {
+      creditsCost = null;
+    }
+
+    let jobIds: string[];
+
+    try {
+      jobIds = await createImageJobs({ model, prompt, extras: params });
+    } catch (error) {
+      if (error instanceof GenerateError) {
+        throw new HTTPException(400, { message: error.message.slice(0, 300) });
+      }
+
+      throw error;
+    }
+
+    const jobs = await Promise.all(
+      jobIds.map(async (id) => {
+        try {
+          return { job: await getImageJob(id) };
+        } catch {
+          // The job exists, we just could not read it yet; the watcher fills
+          // in status and metadata on the next pass.
+          const fallback: HiggsfieldJob = {
+            id,
+            job_type: model,
+            status: "queued",
+            params: {},
+          };
+
+          return { job: fallback };
+        }
+      }),
+    );
+
+    const rows = await insertAudioGenerations({
+      userId,
+      model,
+      prompt,
+      variant: params.variant ?? null,
+      voiceId: selection.voiceId,
+      voiceType: selection.voiceType,
+      voiceName: selection.voiceName,
+      params,
+      creditsCost,
+      jobs,
+    });
+
+    return c.json({ audio: rows }, 201);
+  } catch (error) {
+    if (error instanceof HTTPException) throw error;
+
+    return fail(error, "Could not start the audio generation.");
+  }
+}
+
+/**
  * Credit estimate for the prompt bar's current script and settings. A
  * text-to-speech job is priced by character count, so this re-runs whenever
  * the script changes.
@@ -287,28 +633,7 @@ export async function estimateAudioCostHandler(c: Context<AuthEnv>) {
     throw new HTTPException(400, { message: "Prompt is too long." });
   }
 
-  if (
-    value.params !== undefined &&
-    (typeof value.params !== "object" ||
-      value.params === null ||
-      Array.isArray(value.params))
-  ) {
-    throw new HTTPException(400, { message: "Invalid audio options." });
-  }
-
-  const params: Record<string, string> = { ...rules.defaults };
-
-  for (const [key, raw] of Object.entries(
-    (value.params as Record<string, unknown> | undefined) ?? {},
-  )) {
-    if (!rules.allowed.has(key)) {
-      throw new HTTPException(400, { message: `Unknown option "${key}".` });
-    }
-
-    const parsed = readParamValue(key, raw);
-
-    if (parsed !== "") params[key] = parsed;
-  }
+  const params = readAudioParams(value.params, rules);
 
   const key = JSON.stringify([model, value.prompt, params]);
   const cached = costCache.get(key);
