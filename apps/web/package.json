@@ -9,7 +9,8 @@
     "dev": "vite dev --port 5560",
     "generate-routes": "tsr generate",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "start": "bun run scripts/serve.ts"
   },
   "dependencies": {
     "@heroui/react": "3.2.7",

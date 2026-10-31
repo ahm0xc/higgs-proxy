@@ -11,6 +11,11 @@ dist
 coverage
 *.lcov
 
+# runtime state written by install.sh / upgrade.sh
+.run
+.install.conf
+backups
+
 # logs
 logs
 _.log
