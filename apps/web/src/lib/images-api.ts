@@ -7,6 +7,7 @@ export type ImageStatus =
 export interface GeneratedImage {
   id: string;
   userId: string;
+  userName: string | null;
   model: string;
   modelName: string;
   prompt: string;

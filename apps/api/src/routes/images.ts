@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { db } from "../lib/db";
-import { imageGeneration, imageGenerationInput } from "../lib/db/schema";
+import { imageGeneration, imageGenerationInput, user } from "../lib/db/schema";
 import {
   CostEstimateError,
   createImageJobs,
@@ -64,6 +64,7 @@ export async function listImagesHandler(c: Context<AuthEnv>) {
     .select({
       id: imageGeneration.id,
       userId: imageGeneration.userId,
+      userName: user.name,
       model: imageGeneration.model,
       modelName: imageGeneration.modelName,
       prompt: imageGeneration.prompt,
@@ -83,6 +84,7 @@ export async function listImagesHandler(c: Context<AuthEnv>) {
       completedAt: imageGeneration.completedAt,
     })
     .from(imageGeneration)
+    .leftJoin(user, eq(user.id, imageGeneration.userId))
     .where(and(...filters))
     .orderBy(desc(imageGeneration.createdAt))
     .limit(limit + 1);

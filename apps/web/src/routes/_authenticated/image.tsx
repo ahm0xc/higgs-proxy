@@ -1,4 +1,5 @@
 import { Avatar } from "@heroui/react/avatar";
+import { Tooltip } from "@heroui/react/tooltip";
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
 
@@ -342,7 +343,7 @@ function ImageCard({
   const isReady = image.status === "completed" && Boolean(src);
 
   return (
-    <div className="group relative block h-full min-h-0 w-full overflow-hidden bg-zinc-100 dark:bg-zinc-900">
+    <div className="group relative block h-full min-h-0 w-full bg-zinc-100 dark:bg-zinc-900">
       {/* The whole card opens the lightbox; actions layer above it. */}
       <button
         type="button"
@@ -351,7 +352,8 @@ function ImageCard({
         className="absolute inset-0 z-0 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-inset dark:focus-visible:ring-zinc-100"
       />
 
-      <div className="pointer-events-none relative h-full w-full overflow-hidden">
+      {/* Not clipped, so the avatar's tooltip can escape the card. */}
+      <div className="pointer-events-none relative h-full w-full">
         {isReady ? (
           <img
             src={src ?? undefined}
@@ -383,10 +385,20 @@ function ImageCard({
         ) : null}
 
         {/* Right rail: who made it, then the actions stacked below. */}
-        <div className="absolute inset-y-0 right-0 flex w-24 flex-col items-end gap-2 bg-linear-to-l from-black/80 via-black/25 to-transparent p-2 opacity-0 transition-opacity duration-300 group-hover:opacity-100 has-[:focus-visible]:opacity-100">
-          <Avatar size="sm" className="size-7 shrink-0 ring-1 ring-white/20">
-            <Avatar.Image src={avatarUrlFor(image.userId)} alt="" />
-          </Avatar>
+        <div className="absolute inset-y-0 right-0 z-10 flex w-24 flex-col items-end gap-2 bg-linear-to-l from-black/80 via-black/25 to-transparent p-2 opacity-0 transition-opacity duration-300 group-hover:opacity-100 has-[:focus-visible]:opacity-100">
+          <Tooltip delay={0}>
+            <Tooltip.Trigger className="pointer-events-auto">
+              <Avatar
+                size="sm"
+                className="size-7 shrink-0 ring-1 ring-white/20"
+              >
+                <Avatar.Image src={avatarUrlFor(image.userId)} alt="" />
+              </Avatar>
+            </Tooltip.Trigger>
+            <Tooltip.Content>
+              {image.userName ?? "Unknown user"}
+            </Tooltip.Content>
+          </Tooltip>
 
           <div className="pointer-events-auto flex flex-col items-end gap-1.5">
             <button
