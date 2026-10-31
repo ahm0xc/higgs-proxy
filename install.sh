@@ -313,30 +313,66 @@ ensure_bun() {
   ok "Bun $("$BUN_BIN" --version)"
 }
 
+install_higgsfield_cli() {
+  local npm_bin allow_scripts
+  npm_bin="$(command -v npm)"
+  allow_scripts=""
+
+  # npm 12+ blocks dependency lifecycle scripts unless explicitly allowed.
+  # The CLI's postinstall downloads its binary, so it must be allowed.
+  if "$npm_bin" install --help 2>/dev/null | grep -q -- "--allow-scripts"; then
+    allow_scripts="--allow-scripts=@higgsfield/cli"
+  fi
+
+  # shellcheck disable=SC2086
+  if ! "$npm_bin" install -g @higgsfield/cli $allow_scripts; then
+    warn "Global npm install failed; retrying with sudo."
+    # shellcheck disable=SC2086
+    as_root "$npm_bin" install -g @higgsfield/cli $allow_scripts
+  fi
+}
+
+higgsfield_is_runnable() {
+  [ -n "$HIGGSFIELD_BIN" ] && "$HIGGSFIELD_BIN" --version >/dev/null 2>&1
+}
+
 ensure_higgsfield() {
+  local installed=0
+
   if command -v higgsfield >/dev/null 2>&1; then
     HIGGSFIELD_BIN="$(command -v higgsfield)"
-    ok "Higgsfield CLI at $HIGGSFIELD_BIN"
+
+    if higgsfield_is_runnable; then
+      ok "Higgsfield CLI at $HIGGSFIELD_BIN"
+      installed=1
+    else
+      warn "Higgsfield CLI exists at $HIGGSFIELD_BIN but does not run (postinstall may have been skipped)."
+    fi
   else
     warn "Higgsfield CLI not found."
+  fi
 
+  if [ "$installed" = "0" ]; then
     if command -v npm >/dev/null 2>&1 && confirm "Install the Higgsfield CLI globally with npm?"; then
-      if ! npm install -g @higgsfield/cli; then
-        warn "Global npm install failed; retrying with sudo."
-        as_root "$(command -v npm)" install -g @higgsfield/cli || warn "Could not install the Higgsfield CLI."
-      fi
+      install_higgsfield_cli || warn "Could not install the Higgsfield CLI."
     fi
 
     if command -v higgsfield >/dev/null 2>&1; then
       HIGGSFIELD_BIN="$(command -v higgsfield)"
-      ok "Higgsfield CLI at $HIGGSFIELD_BIN"
+
+      if higgsfield_is_runnable; then
+        ok "Higgsfield CLI at $HIGGSFIELD_BIN"
+      else
+        warn "The installed Higgsfield CLI still fails to run. Check your npm config and reinstall with:"
+        warn "  npm install -g @higgsfield/cli --allow-scripts=@higgsfield/cli"
+      fi
     else
       warn "Continuing without the Higgsfield CLI. The dashboard will show 'CLI not installed'."
-      warn "Install it later with: npm install -g @higgsfield/cli"
+      warn "Install it later with: npm install -g @higgsfield/cli --allow-scripts=@higgsfield/cli"
     fi
   fi
 
-  if [ -n "$HIGGSFIELD_BIN" ]; then
+  if [ -n "$HIGGSFIELD_BIN" ] && higgsfield_is_runnable; then
     if ! "$HIGGSFIELD_BIN" auth token >/dev/null 2>&1; then
       warn "Higgsfield CLI is not signed in yet. Run: higgsfield auth login"
     else

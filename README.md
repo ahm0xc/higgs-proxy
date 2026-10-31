@@ -21,14 +21,14 @@ and `apps/web` (React + Vite). The installer starts both for you.
 
 ## Requirements
 
-| Requirement                | Notes                                                                          |
-| -------------------------- | ------------------------------------------------------------------------------ |
-| macOS 12+ or Linux         | Windows is not supported yet.                                                  |
-| `git`, `curl`, `openssl`   | The installer can install these via Homebrew/apt/dnf/pacman.                   |
-| [Bun](https://bun.sh) 1.2+ | Installed automatically if missing.                                            |
-| Node.js 20+ and npm        | Needed by the Higgsfield CLI. The installer offers to install them.            |
-| Higgsfield CLI             | Installed with `npm install -g @higgsfield/cli`, then `higgsfield auth login`. |
-| A Higgsfield account       | A selected workspace with credits.                                             |
+| Requirement                | Notes                                                                                                          |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| macOS 12+ or Linux         | Windows is not supported yet.                                                                                  |
+| `git`, `curl`, `openssl`   | The installer can install these via Homebrew/apt/dnf/pacman.                                                   |
+| [Bun](https://bun.sh) 1.2+ | Installed automatically if missing.                                                                            |
+| Node.js 20+ and npm        | Needed by the Higgsfield CLI. The installer offers to install them.                                            |
+| Higgsfield CLI             | Installed with `npm install -g @higgsfield/cli --allow-scripts=@higgsfield/cli`, then `higgsfield auth login`. |
+| A Higgsfield account       | A selected workspace with credits.                                                                             |
 
 > You do **not** need Nginx, Caddy, Docker, Postgres, or Redis. If you want a
 > domain and TLS, put your own reverse proxy in front of the two ports — that
@@ -440,21 +440,21 @@ Press `Ctrl+C` to stop the dev processes. Installed services are stopped with
 
 ## Troubleshooting
 
-| Symptom                                        | Fix                                                                                                                                                        |
-| ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Dashboard says **CLI not installed**           | `npm install -g @higgsfield/cli`, then make sure `HIGGSFIELD_CLI_PATH` in `apps/api/.env` points at the binary (`which higgsfield`). Restart.              |
-| Dashboard says **unauthenticated**             | Run `higgsfield auth login` as the user that runs the API service, then refresh.                                                                           |
-| Dashboard says **out of credits**              | Top up or switch workspaces with `higgsfield workspace select`.                                                                                            |
-| Login succeeds but the session does not stick  | `BETTER_AUTH_URL`, `CORS_ORIGINS`, and the browser URL must match exactly and use the same scheme. Remove `.env.local` leftovers.                          |
-| `install.sh: Permission denied`                | `chmod +x install.sh upgrade.sh`                                                                                                                           |
-| Port already in use                            | Stop the process using it. On a fresh install choose other ports with `--web-port` / `--api-port`; on an existing install edit `.env` and `.install.conf`. |
-| User systemd services stop after logout        | `loginctl enable-linger "$USER"`                                                                                                                           |
-| macOS services do not start over SSH           | launchd needs a GUI session. The installer falls back to background processes; use `./install.sh --restart` from a desktop session or run with `nohup`.    |
-| `bun: command not found` after install         | `export PATH="$HOME/.bun/bin:$PATH"` and add it to your shell profile.                                                                                     |
-| Need to reset the admin                        | There is no public sign-up. Restore a database backup, or remove `apps/api/db.sqlite` **only** on a fresh install and rerun `./install.sh`.                |
-| Mismatched Vite API URL after changing domains | Edit `apps/web/.env`, then `cd apps/web && bun run build && cd ../.. && ./install.sh --restart`.                                                           |
-| Services return after reboot                   | `./install.sh --stop` is temporary. Use the `systemctl disable` / launchd commands under [Stopping and disabling](#stopping-and-disabling).                |
-| Ports/URLs did not change after a rerun        | The installer never overwrites existing `.env` values. Edit `.env` (and `.install.conf` for ports), rebuild if needed, then `./install.sh --restart`.      |
+| Symptom                                        | Fix                                                                                                                                                                                                                                                 |
+| ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Dashboard says **CLI not installed**           | Install it with `npm install -g @higgsfield/cli --allow-scripts=@higgsfield/cli` (the flag lets its `postinstall` download the binary), then make sure `HIGGSFIELD_CLI_PATH` in `apps/api/.env` points at the binary (`which higgsfield`). Restart. |
+| Dashboard says **unauthenticated**             | Run `higgsfield auth login` as the user that runs the API service, then refresh.                                                                                                                                                                    |
+| Dashboard says **out of credits**              | Top up or switch workspaces with `higgsfield workspace select`.                                                                                                                                                                                     |
+| Login succeeds but the session does not stick  | `BETTER_AUTH_URL`, `CORS_ORIGINS`, and the browser URL must match exactly and use the same scheme. Remove `.env.local` leftovers.                                                                                                                   |
+| `install.sh: Permission denied`                | `chmod +x install.sh upgrade.sh`                                                                                                                                                                                                                    |
+| Port already in use                            | Stop the process using it. On a fresh install choose other ports with `--web-port` / `--api-port`; on an existing install edit `.env` and `.install.conf`.                                                                                          |
+| User systemd services stop after logout        | `loginctl enable-linger "$USER"`                                                                                                                                                                                                                    |
+| macOS services do not start over SSH           | launchd needs a GUI session. The installer falls back to background processes; use `./install.sh --restart` from a desktop session or run with `nohup`.                                                                                             |
+| `bun: command not found` after install         | `export PATH="$HOME/.bun/bin:$PATH"` and add it to your shell profile.                                                                                                                                                                              |
+| Need to reset the admin                        | There is no public sign-up. Restore a database backup, or remove `apps/api/db.sqlite` **only** on a fresh install and rerun `./install.sh`.                                                                                                         |
+| Mismatched Vite API URL after changing domains | Edit `apps/web/.env`, then `cd apps/web && bun run build && cd ../.. && ./install.sh --restart`.                                                                                                                                                    |
+| Services return after reboot                   | `./install.sh --stop` is temporary. Use the `systemctl disable` / launchd commands under [Stopping and disabling](#stopping-and-disabling).                                                                                                         |
+| Ports/URLs did not change after a rerun        | The installer never overwrites existing `.env` values. Edit `.env` (and `.install.conf` for ports), rebuild if needed, then `./install.sh --restart`.                                                                                               |
 
 ---
 
